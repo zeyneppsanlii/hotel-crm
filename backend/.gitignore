@@ -56,3 +56,10 @@ pids
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 /generated/prisma
+
+# Bruno API collection secrets
+# Mark tokens/credentials as "secret" in Bruno -> they land in this .env (already
+# covered by the .env rule above, listed here for clarity). Do NOT put secrets as
+# plain `value:` in environment .yml files; use *.local.yml for personal envs.
+api/bruno/.env
+api/bruno/environments/*.local.yml

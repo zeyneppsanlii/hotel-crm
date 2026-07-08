@@ -1,0 +1,52 @@
+info:
+  name: Create a user
+  type: http
+  seq: 2
+  tags:
+    - users
+
+http:
+  method: POST
+  url: "{{baseUrl}}/users"
+  body:
+    type: json
+    data: |-
+      {
+        "email": ""
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 201 Response
+    description: User created
+    request:
+      url: "{{baseUrl}}/users"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "email": ""
+          }
+    response:
+      status: 201
+      statusText: Created
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "id": "",
+            "email": "",
+            "name": "",
+            "createdAt": "",
+            "updatedAt": ""
+          }

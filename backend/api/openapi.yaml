@@ -1,0 +1,84 @@
+openapi: 3.0.3
+info:
+  title: Hotel CRM API
+  version: '1.0'
+  description: >-
+    Hotel CRM / infrastructure-monitoring SaaS backend. Early scaffolding —
+    only the default health endpoint and the users module are implemented so far.
+servers:
+  - url: http://localhost:3000
+    description: Local development
+tags:
+  - name: users
+security: []
+paths:
+  /:
+    get:
+      summary: Health check
+      operationId: getHello
+      responses:
+        '200':
+          description: OK
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: Hello World!
+  /users:
+    get:
+      tags: [users]
+      summary: List users
+      operationId: findAllUsers
+      responses:
+        '200':
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+    post:
+      tags: [users]
+      summary: Create a user
+      operationId: createUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserDto'
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required: [id, email, name, createdAt, updatedAt]
+    CreateUserDto:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+      required: [email]
