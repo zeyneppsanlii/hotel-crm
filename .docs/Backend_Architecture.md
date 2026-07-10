@@ -34,7 +34,7 @@ Bu belge, otel CRM ve altyapı izleme platformunun backend mimarisini tanımlar.
 
 ### 1.1 Temel Özellikler
 
-- **Multi-Tenant SaaS:** Her otel bağımsız çalışır (schema-per-tenant)
+- **Multi-Tenant SaaS:** Her otel bağımsız çalışır (tek şema + Row-Level Security)
 - **WhatsApp Entegrasyonu:** Misafirlerle doğrudan mesajlaşma
 - **Hizmet Talep Yönetimi:** Oda servisi, temizlik, teknik destek
 - **IoT Altyapı İzleme:** Kameralar, sensörler, kart okuyucular
@@ -54,7 +54,7 @@ Bu belge, otel CRM ve altyapı izleme platformunun backend mimarisini tanımlar.
 | Katman | Teknoloji | Gerekçe |
 |--------|-----------|---------|
 | Framework | NestJS | TypeScript, modüler yapı, enterprise-ready |
-| Database | PostgreSQL | Multi-tenant, güvenilir, ACID |
+| Database | PostgreSQL | Row-Level Security, güvenilir, ACID |
 | ORM | Prisma | Type-safe, migration desteği, modern |
 | Cache | Redis | Hızlı, pub/sub desteği |
 | Real-time | Socket.io | WebSocket, fallback desteği |
@@ -271,26 +271,39 @@ Talep Gelir → Kategorize Edilir → Atanır → İşleme Alınır → Tamamlan
 
 **Neden PostgreSQL?**
 
-- **Multi-Tenant Desteği:** Her kiracı için ayrı schema
+- **Row-Level Security (RLS):** Kiracı izolasyonu veritabanı katmanında zorunlu kılınır
 - **ACID:** Veri tutarlılığı garanti
 - **JSON Desteği:** Esnek veri modelleri
 - **Full-Text Search:** Arama özellikleri
 - **Güvenilirlik:** Production-grade, battle-tested
 
-**Schema-Per-Tenant Modeli:**
+**Tek Şema + RLS Modeli:**
+
+Tüm kiracılar tek bir `public` şemasını paylaşır. Kiracıya ait her tablo bir
+`tenant_id` (uuid) kolonu taşır ve tabloya tanımlanan RLS politikaları, o an aktif
+kiracının satırları dışındaki hiçbir satırı görünür kılmaz.
+
 ```sql
-CREATE SCHEMA tenant_hotel_a;
-CREATE SCHEMA tenant_hotel_b;
+-- Tek şema, her tenant tablosunda tenant_id
+public.tenants          -- otel kayıtları (paylaşılan)
+public.tenant_users     -- kullanıcı ↔ tenant ↔ rol (paylaşılan)
+public.users            -- tenant_id
+public.guests           -- tenant_id
+public.tickets          -- tenant_id
+-- ...
 
--- Her schema'da aynı tablolar
-tenant_hotel_a.users
-tenant_hotel_a.guests
-tenant_hotel_a.tickets
+-- Her tenant tablosunda RLS aktif ve zorunlu
+ALTER TABLE public.tickets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.tickets FORCE ROW LEVEL SECURITY;
 
-tenant_hotel_b.users
-tenant_hotel_b.guests
-tenant_hotel_b.tickets
+CREATE POLICY tenant_isolation ON public.tickets
+  USING (tenant_id = current_setting('app.current_tenant_id', true)::uuid);
 ```
+
+> **Neden schema-per-tenant değil?** Bkz. [§7.4 Karar Evrimi](#74-karar-evrimi).
+> Kısaca: Prisma tek bir şemaya karşı tek bir migration yolu bekler; dinamik
+> `search_path`/şema başına migration operasyonel yükü büyütür. Tek şema + RLS,
+> izolasyonu DB katmanında zorunlu kılarken Prisma ile sorunsuz çalışır.
 
 ### 5.3 ORM: Prisma
 
@@ -392,7 +405,7 @@ tickets/
                │
 ┌──────────────▼──────────────────────┐
 │           Database                   │  ← PostgreSQL
-│    (Multi-tenant schemas)            │
+│  (Tek şema + Row-Level Security)     │
 └─────────────────────────────────────┘
 ```
 
@@ -432,83 +445,137 @@ export class TicketService {
 
 ## 7. MULTI-TENANT MİMARİSİ
 
-### 7.1 Schema-Per-Tenant Modeli
+### 7.1 Tek Şema + Row-Level Security (RLS) Modeli
+
+Tüm kiracılar tek bir PostgreSQL şemasını (`public`) paylaşır. İzolasyon, uygulama
+kodundaki `WHERE tenant_id = ...` filtreleriyle değil, her tabloya tanımlanan **RLS
+politikalarıyla veritabanı katmanında** sağlanır. Bir servis yanlışlıkla filtreyi
+unutsa bile veritabanı, aktif kiracının dışındaki satırları döndürmez.
 
 **Yapı:**
 ```
-PostgreSQL Database
-├── public schema (shared)
-│   ├── tenants          ← Otel bilgileri
-│   └── tenant_users     ← Kullanıcı-otel ilişkileri
+PostgreSQL Database (tek şema: public)
+├── tenants          ← Otel kayıtları (paylaşılan, RLS yok)
+├── tenant_users     ← Kullanıcı ↔ tenant ↔ rol (paylaşılan)
 │
-├── tenant_abc (Hotel A)
-│   ├── users
-│   ├── guests
-│   ├── tickets
-│   └── ...
-│
-└── tenant_xyz (Hotel B)
-    ├── users
-    ├── guests
-    ├── tickets
-    └── ...
+├── users            ← tenant_id + RLS
+├── guests           ← tenant_id + RLS
+├── conversations    ← tenant_id + RLS
+├── messages         ← tenant_id + RLS
+├── tickets          ← tenant_id + RLS
+├── devices          ← tenant_id + RLS
+└── device_alerts    ← tenant_id + RLS
 ```
 
+Her kiracıya ait tablo bir `tenant_id UUID` kolonu taşır. Kiracı verisine erişen her
+tablo için RLS **aktif ve zorunlu** (`FORCE`) kılınır ve bir izolasyon politikası
+tanımlanır:
+
+```sql
+ALTER TABLE public.tickets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.tickets FORCE  ROW LEVEL SECURITY;
+
+CREATE POLICY tenant_isolation ON public.tickets
+  USING      (tenant_id = current_setting('app.current_tenant_id', true)::uuid)
+  WITH CHECK (tenant_id = current_setting('app.current_tenant_id', true)::uuid);
+```
+
+> **`FORCE ROW LEVEL SECURITY` neden gerekli?** Bir tablonun sahibi (owner) rolü,
+> RLS politikalarını varsayılan olarak *baypas eder*. Uygulama, migration'ları
+> çalıştıran sahip rolüyle (`hotelcrm`) bağlandığından, `FORCE` olmadan politikalar
+> hiç uygulanmaz. Prod ortamında daha temiz yol, uygulamayı `BYPASSRLS` yetkisi
+> **olmayan** ayrı bir rolle bağlamaktır; bu bir sonraki adım olarak planlanmıştır.
+
 **Avantajları:**
-- Tam veri izolasyonu
-- Performans (her tenant kendi index'leri)
-- Backup ve restore tenant bazlı yapılabilir
-- Compliance (KVKK, GDPR)
+- Tek migration yolu — Prisma ile sorunsuz çalışır
+- İzolasyon DB katmanında zorunlu (kod hatası izolasyonu kıramaz)
+- Yönetim kolaylığı: tek şema, tek yedek/geri yükleme akışı
+- Cross-tenant analitik sorgular (yalnız yetkili bağlamda) mümkün
 
-**Dezavantajları:**
-- Migration her tenant için çalışmalı
-- Cross-tenant sorgular zor
+**Dikkat Edilecekler:**
+- Her tenant tablosunda `tenant_id` üzerinde uygun indeks şart (bkz. §7.3)
+- Bağlantı havuzunda (pooling) oturum değişkeni sızmaması için `SET LOCAL`
+  yalnızca transaction içinde kullanılır (bkz. §7.2)
 
-### 7.2 Tenant Context
+### 7.2 Tenant Context ve İzolasyon Soyutlaması
 
-Her istek için tenant bilgisi context'e eklenir:
+Her istekte kiracı bağlamı iki adımda kurulur:
+
+1. **`TenantMiddleware`** — isteğin `x-tenant-id` başlığını okur, kiracıyı çözer ve
+   request'e ekler.
+2. **Tenant-aware erişim katmanı** — kiracı verisine dokunan her işlem bir
+   transaction içinde çalışır; transaction başında oturum değişkeni yazılır ve RLS
+   politikaları bu değişkeni okur.
 
 ```typescript
-// Middleware
+// 1) Middleware: x-tenant-id başlığını çöz
 @Injectable()
 export class TenantMiddleware implements NestMiddleware {
-  use(req: Request, res: Response, next: NextFunction) {
-    const tenantId = req.headers['x-tenant-id'] as string;
-    
-    // Request'e tenant ekle
-    req['tenant'] = { id: tenantId };
-    
+  use(req: Request, _res: Response, next: NextFunction) {
+    const tenantId = req.headers['x-tenant-id'] as string | undefined;
+    if (tenantId) req['tenantId'] = tenantId;
     next();
   }
 }
 
-// Prisma Client - Tenant bazlı
-async getPrismaClient(tenantId: string) {
-  return new PrismaClient({
-    datasources: {
-      db: { url: `postgresql://...?schema=tenant_${tenantId}` }
-    }
+// 2) Tenant-aware erişim: SET LOCAL + transaction
+//    RLS, current_setting('app.current_tenant_id') değerini okur.
+async runInTenantContext<T>(
+  tenantId: string,
+  work: (tx: Prisma.TransactionClient) => Promise<T>,
+): Promise<T> {
+  return this.prisma.$transaction(async (tx) => {
+    // SET LOCAL yalnız bu transaction boyunca geçerlidir (pool-safe).
+    await tx.$executeRaw`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`;
+    return work(tx);
   });
 }
 ```
 
-### 7.3 Tenant İzolasyonu Garantisi
+**İzolasyon bir soyutlamanın arkasındadır.** Feature modülleri (tickets, guests, …)
+"RLS mi search_path mi" bilmez; yalnızca "şu anki kiracının verisi" ile çalışır.
+Mekanizma değişse bile modül kodu değişmez.
 
-**Kod Seviyesi:**
-- Her servis tenantId parametresi zorunlu
-- Guard'lar tenant erişimini kontrol eder
-- Unit testler tenant izolasyonunu doğrular
+### 7.3 İndeksleme
 
-**Veritabanı Seviyesi:**
-- Row Level Security (RLS) aktif
-- Cross-schema sorguları engelle
-- Audit logging aktif
+RLS politikaları her satır için `tenant_id = current_setting(...)` koşulunu
+uyguladığından, `tenant_id` her tenant tablosunda indekslenir. Sık sorgulanan
+kolonlar `tenant_id` ile **bileşik (composite)** indekslere alınır ki politika,
+indeks kullanımını bozmasın:
+
+```sql
+CREATE INDEX idx_tickets_tenant           ON public.tickets(tenant_id);
+CREATE INDEX idx_tickets_tenant_status    ON public.tickets(tenant_id, status);
+CREATE INDEX idx_tickets_tenant_assigned  ON public.tickets(tenant_id, assigned_to);
+```
+
+### 7.4 Karar Evrimi
+
+Bu sistem **önce schema-per-tenant** (her otel için ayrı PostgreSQL şeması, birebir
+aynı tablolar) olarak tasarlanmıştı. Uygulama aşamasında iki kısıt öne çıktı ve
+tasarım **tek şema + RLS**'e taşındı:
+
+- **Prisma uyumu:** Prisma tek bir şemaya karşı tek bir migration/istemci modeli
+  bekler. Dinamik `search_path` veya şema-başına ayrı migration'lar, ORM'in doğal
+  akışının dışına çıkmayı ve kırılgan runtime hileleri gerektirir.
+- **Operasyonel yük:** Şema-başına migration, N kiracıya N kez migration çalıştırma,
+  şema-başına yedekleme/izleme ve provisyon karmaşıklığı demektir.
+- **DB katmanında zorunlu izolasyon:** RLS, izolasyonu uygulama koduna bırakmak
+  yerine veritabanında garanti eder; unutulan bir `WHERE` bile veri sızdırmaz.
+- **Yönetim kolaylığı:** Tek şema; tek migration yolu, tek yedek/geri yükleme akışı.
+
+Bu tercih, tam fiziksel izolasyondan (schema-per-tenant) mantıksal ama
+DB-zorunlu izolasyona (RLS) geçiştir; ölçek ve compliance ihtiyaçları değişirse
+büyük kiracılar ileride ayrı veritabanına taşınabilir.
 
 ---
 
 ## 8. VERİTABANI TASARIMI
 
-### 8.1 Shared Schema (public)
+### 8.1 Paylaşılan Tablolar (RLS yok)
+
+Aşağıdaki iki tablo tüm kiracılar arasında paylaşılır; kiracıya ait değildir, bu
+yüzden RLS uygulanmaz. Kalan tüm tablolar kiracıya aittir ve `tenant_id` + RLS taşır.
 
 **tenants**
 ```sql
@@ -516,13 +583,15 @@ CREATE TABLE public.tenants (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name VARCHAR(255) NOT NULL,
   slug VARCHAR(100) UNIQUE NOT NULL,
-  schema_name VARCHAR(100) UNIQUE NOT NULL,
   status VARCHAR(50) DEFAULT 'active',
   settings JSONB,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 ```
+
+> Not: schema-per-tenant tasarımındaki `schema_name` kolonu kaldırıldı — artık
+> ayrı şema yok, kiracı yalnızca `tenant_id` ile temsil edilir.
 
 **tenant_users** (Kullanıcı-tenant ilişkileri)
 ```sql
@@ -536,13 +605,20 @@ CREATE TABLE public.tenant_users (
 );
 ```
 
-### 8.2 Tenant Schema Tabloları
+### 8.2 Kiracıya Ait Tablolar (tenant_id + RLS)
+
+Aşağıdaki tabloların tümü `tenant_id UUID NOT NULL` kolonu taşır, `tenants(id)`'ye
+referans verir ve her biri için RLS aktif + zorunlu kılınır (bkz. §7.1). `tenant_id`
+üzerinde indeks ve sık sorgulanan kolonlarla bileşik indeksler tanımlanır. Not:
+schema-per-tenant tasarımında şema başına benzersiz olan `email` gibi kolonlar,
+artık tek şemada `(tenant_id, email)` olarak kiracı-kapsamlı benzersizdir.
 
 **users**
 ```sql
 CREATE TABLE users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  email VARCHAR(255) UNIQUE NOT NULL,
+  tenant_id UUID NOT NULL REFERENCES tenants(id),
+  email VARCHAR(255) NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
   full_name VARCHAR(255) NOT NULL,
   role VARCHAR(50) NOT NULL,
@@ -550,17 +626,19 @@ CREATE TABLE users (
   is_active BOOLEAN DEFAULT true,
   last_login_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (tenant_id, email)
 );
 
-CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_users_role ON users(role);
+CREATE INDEX idx_users_tenant ON users(tenant_id);
+CREATE INDEX idx_users_tenant_role ON users(tenant_id, role);
 ```
 
 **guests**
 ```sql
 CREATE TABLE guests (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id),
   full_name VARCHAR(255) NOT NULL,
   phone VARCHAR(20) NOT NULL,
   whatsapp_number VARCHAR(20),
@@ -575,15 +653,17 @@ CREATE TABLE guests (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_guests_phone ON guests(phone);
-CREATE INDEX idx_guests_room ON guests(room_number);
-CREATE INDEX idx_guests_status ON guests(status);
+CREATE INDEX idx_guests_tenant ON guests(tenant_id);
+CREATE INDEX idx_guests_tenant_phone ON guests(tenant_id, phone);
+CREATE INDEX idx_guests_tenant_room ON guests(tenant_id, room_number);
+CREATE INDEX idx_guests_tenant_status ON guests(tenant_id, status);
 ```
 
 **conversations**
 ```sql
 CREATE TABLE conversations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id),
   guest_id UUID REFERENCES guests(id),
   assigned_to UUID REFERENCES users(id),
   status VARCHAR(50) DEFAULT 'active',
@@ -592,15 +672,17 @@ CREATE TABLE conversations (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_conversations_guest ON conversations(guest_id);
-CREATE INDEX idx_conversations_assigned ON conversations(assigned_to);
-CREATE INDEX idx_conversations_status ON conversations(status);
+CREATE INDEX idx_conversations_tenant ON conversations(tenant_id);
+CREATE INDEX idx_conversations_tenant_guest ON conversations(tenant_id, guest_id);
+CREATE INDEX idx_conversations_tenant_assigned ON conversations(tenant_id, assigned_to);
+CREATE INDEX idx_conversations_tenant_status ON conversations(tenant_id, status);
 ```
 
 **messages**
 ```sql
 CREATE TABLE messages (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id),
   conversation_id UUID REFERENCES conversations(id),
   sender_type VARCHAR(50) NOT NULL, -- 'guest' or 'staff'
   sender_id UUID,
@@ -614,14 +696,16 @@ CREATE TABLE messages (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_messages_conversation ON messages(conversation_id);
-CREATE INDEX idx_messages_created_at ON messages(created_at DESC);
+CREATE INDEX idx_messages_tenant ON messages(tenant_id);
+CREATE INDEX idx_messages_tenant_conversation ON messages(tenant_id, conversation_id);
+CREATE INDEX idx_messages_tenant_created_at ON messages(tenant_id, created_at DESC);
 ```
 
 **tickets**
 ```sql
 CREATE TABLE tickets (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id),
   guest_id UUID REFERENCES guests(id),
   conversation_id UUID REFERENCES conversations(id),
   category VARCHAR(100) NOT NULL,
@@ -637,17 +721,19 @@ CREATE TABLE tickets (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_tickets_guest ON tickets(guest_id);
-CREATE INDEX idx_tickets_status ON tickets(status);
-CREATE INDEX idx_tickets_assigned ON tickets(assigned_to);
-CREATE INDEX idx_tickets_category ON tickets(category);
-CREATE INDEX idx_tickets_created_at ON tickets(created_at DESC);
+CREATE INDEX idx_tickets_tenant ON tickets(tenant_id);
+CREATE INDEX idx_tickets_tenant_guest ON tickets(tenant_id, guest_id);
+CREATE INDEX idx_tickets_tenant_status ON tickets(tenant_id, status);
+CREATE INDEX idx_tickets_tenant_assigned ON tickets(tenant_id, assigned_to);
+CREATE INDEX idx_tickets_tenant_category ON tickets(tenant_id, category);
+CREATE INDEX idx_tickets_tenant_created_at ON tickets(tenant_id, created_at DESC);
 ```
 
 **devices**
 ```sql
 CREATE TABLE devices (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id),
   name VARCHAR(255) NOT NULL,
   device_type VARCHAR(100) NOT NULL,
   model VARCHAR(255),
@@ -662,15 +748,17 @@ CREATE TABLE devices (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_devices_type ON devices(device_type);
-CREATE INDEX idx_devices_status ON devices(status);
-CREATE INDEX idx_devices_location ON devices(location);
+CREATE INDEX idx_devices_tenant ON devices(tenant_id);
+CREATE INDEX idx_devices_tenant_type ON devices(tenant_id, device_type);
+CREATE INDEX idx_devices_tenant_status ON devices(tenant_id, status);
+CREATE INDEX idx_devices_tenant_location ON devices(tenant_id, location);
 ```
 
 **device_alerts**
 ```sql
 CREATE TABLE device_alerts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id),
   device_id UUID REFERENCES devices(id),
   alert_type VARCHAR(100) NOT NULL,
   severity VARCHAR(50) DEFAULT 'medium',
@@ -682,27 +770,43 @@ CREATE TABLE device_alerts (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_device_alerts_device ON device_alerts(device_id);
-CREATE INDEX idx_device_alerts_severity ON device_alerts(severity);
-CREATE INDEX idx_device_alerts_ack ON device_alerts(is_acknowledged);
+CREATE INDEX idx_device_alerts_tenant ON device_alerts(tenant_id);
+CREATE INDEX idx_device_alerts_tenant_device ON device_alerts(tenant_id, device_id);
+CREATE INDEX idx_device_alerts_tenant_severity ON device_alerts(tenant_id, severity);
+CREATE INDEX idx_device_alerts_tenant_ack ON device_alerts(tenant_id, is_acknowledged);
 ```
 
-### 8.3 Migration Stratejisi
+### 8.3 RLS Kurulumu
+
+Kiracıya ait her tablo için migration, tabloları/indeksleri oluşturmanın yanında
+RLS'i etkinleştirir ve izolasyon politikasını tanımlar. Prisma migration'ları raw
+SQL adımlarını desteklediğinden, bu adım migration dosyasının sonuna eklenir:
+
+```sql
+-- Örnek: tickets tablosu için (her tenant tablosu için tekrarlanır)
+ALTER TABLE "tickets" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "tickets" FORCE  ROW LEVEL SECURITY;  -- sahip rolü de baypas edemesin
+
+CREATE POLICY tenant_isolation ON "tickets"
+  USING      ("tenant_id" = current_setting('app.current_tenant_id', true)::uuid)
+  WITH CHECK ("tenant_id" = current_setting('app.current_tenant_id', true)::uuid);
+```
+
+`current_setting(..., true)` ikinci argümanı `true` olduğundan, oturum değişkeni
+ayarlı değilken hata fırlatmaz; bunun yerine `NULL` döner ve hiçbir satır eşleşmez
+(güvenli varsayılan: bağlam yoksa veri yok).
+
+### 8.4 Migration Stratejisi
 
 **İlk Kurulum:**
-1. Shared schema oluştur
-2. Tenant kaydı yap
-3. Tenant schema oluştur
-4. Tüm tabloları oluştur
+1. `public` şemasındaki tüm tabloları tek migration ile oluştur
+2. Kiracı tablolarında RLS'i etkinleştir + politikaları tanımla (aynı migration)
+3. `tenants` / `tenant_users`'a ilk kiracı ve kullanıcı kayıtlarını ekle
 
 **Güncelleme:**
 ```bash
-# 1. Migration dosyası oluştur
+# Tek şema → tek migration yolu. Şema-başına döngü yok.
 npx prisma migrate dev --name add_guest_preferences
-
-# 2. Tüm tenant'lara uygula
-for tenant in tenants:
-  applyMigration(tenant.schemaName)
 ```
 
 **Rollback Stratejisi:**

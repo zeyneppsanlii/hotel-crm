@@ -1,18 +1,23 @@
 import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+import { TenantPrismaService } from '../common/tenant/tenant-prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly tenantPrisma: TenantPrismaService) {}
 
+  // Both methods run through the tenant-aware layer: RLS scopes reads to the
+  // current tenant, and inserts stamp the tenant id (RLS filters but does not
+  // populate the column).
   findAll() {
-    return this.prisma.user.findMany();
+    return this.tenantPrisma.run((tx) => tx.user.findMany());
   }
 
   create(dto: CreateUserDto) {
-    return this.prisma.user.create({
-      data: { email: dto.email, name: dto.email },
-    });
+    return this.tenantPrisma.run((tx, tenantId) =>
+      tx.user.create({
+        data: { tenantId, email: dto.email, name: dto.name ?? dto.email },
+      }),
+    );
   }
 }

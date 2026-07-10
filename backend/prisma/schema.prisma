@@ -7,10 +7,217 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
+// -----------------------------------------------------------------------------
+// Multi-tenancy: single schema + PostgreSQL Row-Level Security (RLS).
+//
+// All tenants share the `public` schema. `tenants` / `tenant_users` are shared
+// (no RLS). Every tenant-scoped table carries a `tenant_id uuid` column, and a
+// migration enables RLS on it with a policy that filters rows by
+// `current_setting('app.current_tenant_id')`. The tenant-aware access layer
+// (src/common/tenant) opens a transaction and runs `SET LOCAL app.current_tenant_id`
+// so the policies apply. See .docs/Backend_Architecture.md §7.
+//
+// NOTE: Prisma does not create RLS policies. They live in the migration's raw-SQL
+// step (prisma/migrations/**/migration.sql). Keep this schema and that SQL in sync.
+// -----------------------------------------------------------------------------
+
+// ---- Shared tables (NOT tenant-scoped, no RLS) ------------------------------
+
+model Tenant {
+  id        String   @id @default(uuid()) @db.Uuid
   name      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  slug      String   @unique
+  status    String   @default("active")
+  settings  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenantUsers   TenantUser[]
+  users         User[]
+  guests        Guest[]
+  conversations Conversation[]
+  messages      Message[]
+  tickets       Ticket[]
+  devices       Device[]
+  deviceAlerts  DeviceAlert[]
+
+  @@map("tenants")
+}
+
+// Links a user (by email) to a tenant with a role. Shared across tenants.
+model TenantUser {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  userEmail String   @map("user_email")
+  role      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, userEmail])
+  @@index([tenantId])
+  @@map("tenant_users")
+}
+
+// ---- Tenant-scoped tables (tenant_id + RLS) ---------------------------------
+
+// Minimal smoke-test model that verifies Prisma + the tenant-aware layer.
+// The auth module will expand this toward the target shape in
+// .docs/Backend_Architecture.md §8.2 (password_hash, full_name, role, ...).
+model User {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  email     String
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  // Email is unique per tenant, not globally (single-schema multi-tenancy).
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@map("users")
+}
+
+model Guest {
+  id             String    @id @default(uuid()) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  fullName       String    @map("full_name")
+  phone          String
+  whatsappNumber String?   @map("whatsapp_number")
+  email          String?
+  roomNumber     String?   @map("room_number")
+  checkInDate    DateTime? @map("check_in_date") @db.Date
+  checkOutDate   DateTime? @map("check_out_date") @db.Date
+  status         String    @default("checked_in")
+  notes          String?
+  preferences    Json?
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+  @@index([tenantId, phone])
+  @@index([tenantId, roomNumber])
+  @@index([tenantId, status])
+  @@map("guests")
+}
+
+model Conversation {
+  id            String    @id @default(uuid()) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  guestId       String?   @map("guest_id") @db.Uuid
+  assignedTo    String?   @map("assigned_to") @db.Uuid
+  status        String    @default("active")
+  lastMessageAt DateTime? @map("last_message_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+  @@index([tenantId, guestId])
+  @@index([tenantId, assignedTo])
+  @@index([tenantId, status])
+  @@map("conversations")
+}
+
+model Message {
+  id                String    @id @default(uuid()) @db.Uuid
+  tenantId          String    @map("tenant_id") @db.Uuid
+  conversationId    String?   @map("conversation_id") @db.Uuid
+  senderType        String    @map("sender_type") // 'guest' | 'staff'
+  senderId          String?   @map("sender_id") @db.Uuid
+  content           String
+  messageType       String    @default("text") @map("message_type")
+  whatsappMessageId String?   @map("whatsapp_message_id")
+  status            String    @default("sent")
+  sentAt            DateTime  @default(now()) @map("sent_at")
+  deliveredAt       DateTime? @map("delivered_at")
+  readAt            DateTime? @map("read_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+  @@index([tenantId, conversationId])
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@map("messages")
+}
+
+model Ticket {
+  id              String    @id @default(uuid()) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  guestId         String?   @map("guest_id") @db.Uuid
+  conversationId  String?   @map("conversation_id") @db.Uuid
+  category        String
+  priority        String    @default("medium")
+  status          String    @default("pending")
+  title           String
+  description     String?
+  roomNumber      String?   @map("room_number")
+  assignedTo      String?   @map("assigned_to") @db.Uuid
+  resolvedAt      DateTime? @map("resolved_at")
+  resolutionNotes String?   @map("resolution_notes")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+  @@index([tenantId, guestId])
+  @@index([tenantId, status])
+  @@index([tenantId, assignedTo])
+  @@index([tenantId, category])
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@map("tickets")
+}
+
+model Device {
+  id              String    @id @default(uuid()) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  name            String
+  deviceType      String    @map("device_type")
+  model           String?
+  serialNumber    String?   @map("serial_number")
+  location        String?
+  floor           String?
+  ipAddress       String?   @map("ip_address")
+  status          String    @default("online")
+  lastHeartbeatAt DateTime? @map("last_heartbeat_at")
+  metadata        Json?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+  @@index([tenantId, deviceType])
+  @@index([tenantId, status])
+  @@index([tenantId, location])
+  @@map("devices")
+}
+
+model DeviceAlert {
+  id             String    @id @default(uuid()) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  deviceId       String?   @map("device_id") @db.Uuid
+  alertType      String    @map("alert_type")
+  severity       String    @default("medium")
+  message        String
+  isAcknowledged Boolean   @default(false) @map("is_acknowledged")
+  acknowledgedBy String?   @map("acknowledged_by") @db.Uuid
+  acknowledgedAt DateTime? @map("acknowledged_at")
+  resolvedAt     DateTime? @map("resolved_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+  @@index([tenantId, deviceId])
+  @@index([tenantId, severity])
+  @@index([tenantId, isAcknowledged])
+  @@map("device_alerts")
 }
