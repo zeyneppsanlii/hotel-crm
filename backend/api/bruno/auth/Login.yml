@@ -1,0 +1,38 @@
+info:
+  name: Login
+  type: http
+  seq: 1
+  tags:
+    - auth
+
+# Login is tenant-scoped: the x-tenant-id header picks which hotel you sign into.
+# The seed (npx prisma db seed) creates admin@alpha.com / staff@alpha.com /
+# admin@beta.com, all with password "admin1234".
+http:
+  method: POST
+  url: "{{baseUrl}}/auth/login"
+  body:
+    type: json
+    data: |-
+      {
+        "email": "admin@alpha.com",
+        "password": "admin1234"
+      }
+  auth: inherit
+  headers:
+    - name: x-tenant-id
+      value: "{{tenantAlpha}}"
+
+# Capture the returned token into the `token` env var so protected requests can
+# use it as {{token}}.
+scripts:
+  postResponse: |-
+    if (res.getStatus() === 200) {
+      bru.setEnvVar('token', res.getBody().accessToken);
+    }
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

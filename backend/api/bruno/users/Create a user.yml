@@ -12,9 +12,17 @@ http:
     type: json
     data: |-
       {
-        "email": ""
+        "email": "alice@alpha.com",
+        "name": "Alice"
       }
   auth: inherit
+  headers:
+    # The created user is stamped with this tenant id (RLS filters, the app stamps).
+    - name: x-tenant-id
+      value: "{{tenantAlpha}}"
+    # Requires an authenticated user with users:manage (admin/manager). Run Login first.
+    - name: Authorization
+      value: "Bearer {{token}}"
 
 settings:
   encodeUrl: true
@@ -28,11 +36,15 @@ examples:
     request:
       url: "{{baseUrl}}/users"
       method: POST
+      headers:
+        - name: x-tenant-id
+          value: "{{tenantAlpha}}"
       body:
         type: json
         data: |-
           {
-            "email": ""
+            "email": "alice@alpha.com",
+            "name": "Alice"
           }
     response:
       status: 201
@@ -45,6 +57,7 @@ examples:
         data: |-
           {
             "id": "",
+            "tenantId": "",
             "email": "",
             "name": "",
             "createdAt": "",

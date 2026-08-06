@@ -52,7 +52,7 @@ real time.
 - **Layered per module:** Controller (HTTP/WebSocket + validation) → Service
   (business logic) → Prisma (data access).
 - **Multi-tenancy — single schema + Row-Level Security (RLS).** All tenants share
-  the `public` schema. `tenants` / `tenant_users` are shared; every tenant-scoped
+  the `public` schema. `tenants` is the only shared (non-RLS) table; every tenant-scoped
   table carries a `tenant_id` column. Isolation is enforced **in the database** by
   RLS policies that read a per-request session variable (`app.current_tenant_id`),
   not by application-level `WHERE` clauses. A `TenantMiddleware` resolves the

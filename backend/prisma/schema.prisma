@@ -4,14 +4,17 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  // Runtime connection: the non-superuser `hotelcrm_app` role, so RLS is enforced.
+  url = env("DATABASE_URL")
+  // Migrations / introspection run as the superuser `hotelcrm` (needs DDL).
+  directUrl = env("DIRECT_DATABASE_URL")
 }
 
 // -----------------------------------------------------------------------------
 // Multi-tenancy: single schema + PostgreSQL Row-Level Security (RLS).
 //
-// All tenants share the `public` schema. `tenants` / `tenant_users` are shared
-// (no RLS). Every tenant-scoped table carries a `tenant_id uuid` column, and a
+// All tenants share the `public` schema. `tenants` is shared (no RLS). Every
+// tenant-scoped table carries a `tenant_id uuid` column, and a
 // migration enables RLS on it with a policy that filters rows by
 // `current_setting('app.current_tenant_id')`. The tenant-aware access layer
 // (src/common/tenant) opens a transaction and runs `SET LOCAL app.current_tenant_id`
@@ -21,7 +24,7 @@ datasource db {
 // step (prisma/migrations/**/migration.sql). Keep this schema and that SQL in sync.
 // -----------------------------------------------------------------------------
 
-// ---- Shared tables (NOT tenant-scoped, no RLS) ------------------------------
+// ---- Shared table (NOT tenant-scoped, no RLS) -------------------------------
 
 model Tenant {
   id        String   @id @default(uuid()) @db.Uuid
@@ -32,7 +35,6 @@ model Tenant {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  tenantUsers   TenantUser[]
   users         User[]
   guests        Guest[]
   conversations Conversation[]
@@ -44,39 +46,35 @@ model Tenant {
   @@map("tenants")
 }
 
-// Links a user (by email) to a tenant with a role. Shared across tenants.
-model TenantUser {
-  id        String   @id @default(uuid()) @db.Uuid
-  tenantId  String   @map("tenant_id") @db.Uuid
-  userEmail String   @map("user_email")
-  role      String
-  createdAt DateTime @default(now()) @map("created_at")
-
-  tenant Tenant @relation(fields: [tenantId], references: [id])
-
-  @@unique([tenantId, userEmail])
-  @@index([tenantId])
-  @@map("tenant_users")
-}
-
 // ---- Tenant-scoped tables (tenant_id + RLS) ---------------------------------
 
-// Minimal smoke-test model that verifies Prisma + the tenant-aware layer.
-// The auth module will expand this toward the target shape in
-// .docs/Backend_Architecture.md §8.2 (password_hash, full_name, role, ...).
+// A staff account WITHIN one tenant (one hotel). A person who works at two hotels
+// has two separate accounts — identity is per-tenant, not global. See
+// .docs/Backend_Architecture.md §8.2.
 model User {
-  id        String   @id @default(uuid()) @db.Uuid
-  tenantId  String   @map("tenant_id") @db.Uuid
-  email     String
-  name      String
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id           String    @id @default(uuid()) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  email        String
+  passwordHash String    @map("password_hash")
+  fullName     String    @map("full_name")
+  // Coarse tier: 'admin' | 'manager' | 'staff' (admin bypasses permission checks).
+  role         String    @default("staff")
+  // Fine-grained, per-user access: strings like 'guests:view', 'network:edit'.
+  // Role seeds a default set at creation; this column is the source of truth and
+  // can be tuned per user (two same-role users can differ). See src/auth/permissions.ts.
+  permissions  String[]  @default([])
+  phone        String?
+  isActive     Boolean   @default(true) @map("is_active")
+  lastLoginAt  DateTime? @map("last_login_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
 
   // Email is unique per tenant, not globally (single-schema multi-tenancy).
   @@unique([tenantId, email])
   @@index([tenantId])
+  @@index([tenantId, role])
   @@map("users")
 }
 

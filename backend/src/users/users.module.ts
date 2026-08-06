@@ -7,5 +7,6 @@ import { TenantModule } from '../common/tenant/tenant.module';
   imports: [TenantModule],
   controllers: [UsersController],
   providers: [UsersService],
+  exports: [UsersService],
 })
 export class UsersModule {}

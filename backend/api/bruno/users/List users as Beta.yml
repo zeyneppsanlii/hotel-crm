@@ -1,0 +1,25 @@
+info:
+  name: List users as Beta
+  type: http
+  seq: 3
+  tags:
+    - users
+
+# Same endpoint as "List users" but scoped to the Beta tenant. Run both back to
+# back to see RLS isolation: each tenant sees only its own users.
+http:
+  method: GET
+  url: "{{baseUrl}}/users"
+  auth: inherit
+  headers:
+    - name: x-tenant-id
+      value: "{{tenantBeta}}"
+    # Log in as a Beta admin first (admin@beta.com) so this token matches the tenant.
+    - name: Authorization
+      value: "Bearer {{token}}"
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

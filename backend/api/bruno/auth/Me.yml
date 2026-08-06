@@ -1,0 +1,21 @@
+info:
+  name: Me
+  type: http
+  seq: 2
+  tags:
+    - auth
+
+# Returns the identity encoded in the current token. Run "Login" first.
+http:
+  method: GET
+  url: "{{baseUrl}}/auth/me"
+  auth: inherit
+  headers:
+    - name: Authorization
+      value: "Bearer {{token}}"
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

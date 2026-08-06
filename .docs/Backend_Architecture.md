@@ -285,8 +285,7 @@ kiracının satırları dışındaki hiçbir satırı görünür kılmaz.
 
 ```sql
 -- Tek şema, her tenant tablosunda tenant_id
-public.tenants          -- otel kayıtları (paylaşılan)
-public.tenant_users     -- kullanıcı ↔ tenant ↔ rol (paylaşılan)
+public.tenants          -- otel kayıtları (paylaşılan, RLS yok)
 public.users            -- tenant_id
 public.guests           -- tenant_id
 public.tickets          -- tenant_id
@@ -456,7 +455,6 @@ unutsa bile veritabanı, aktif kiracının dışındaki satırları döndürmez.
 ```
 PostgreSQL Database (tek şema: public)
 ├── tenants          ← Otel kayıtları (paylaşılan, RLS yok)
-├── tenant_users     ← Kullanıcı ↔ tenant ↔ rol (paylaşılan)
 │
 ├── users            ← tenant_id + RLS
 ├── guests           ← tenant_id + RLS
@@ -572,9 +570,9 @@ büyük kiracılar ileride ayrı veritabanına taşınabilir.
 
 ## 8. VERİTABANI TASARIMI
 
-### 8.1 Paylaşılan Tablolar (RLS yok)
+### 8.1 Paylaşılan Tablo (RLS yok)
 
-Aşağıdaki iki tablo tüm kiracılar arasında paylaşılır; kiracıya ait değildir, bu
+Aşağıdaki tek tablo tüm kiracılar arasında paylaşılır; kiracıya ait değildir, bu
 yüzden RLS uygulanmaz. Kalan tüm tablolar kiracıya aittir ve `tenant_id` + RLS taşır.
 
 **tenants**
@@ -593,17 +591,12 @@ CREATE TABLE public.tenants (
 > Not: schema-per-tenant tasarımındaki `schema_name` kolonu kaldırıldı — artık
 > ayrı şema yok, kiracı yalnızca `tenant_id` ile temsil edilir.
 
-**tenant_users** (Kullanıcı-tenant ilişkileri)
-```sql
-CREATE TABLE public.tenant_users (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id UUID REFERENCES tenants(id),
-  user_email VARCHAR(255) NOT NULL,
-  role VARCHAR(50) NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(tenant_id, user_email)
-);
-```
+> Not: Bir zamanlar planlanan `tenant_users` (kullanıcı ↔ tenant ↔ rol) tablosu
+> **kaldırıldı.** Kimlik modeli tek-tenant'a sabitlendi: bir kullanıcı tam olarak
+> bir otele aittir (iki otelde çalışan kişinin iki ayrı hesabı olur). "Kim, hangi
+> otelde, hangi rolde" bilgisi doğrudan `users` tablosunda (`tenant_id` + `role`)
+> tutulur. Tek-login-çok-otel ihtiyacı ileride doğarsa, bu additive bir katman
+> (üyelik tablosu + tenant-arası raporlama yolu) olarak eklenir, yeniden yazım değil.
 
 ### 8.2 Kiracıya Ait Tablolar (tenant_id + RLS)
 
@@ -801,7 +794,7 @@ ayarlı değilken hata fırlatmaz; bunun yerine `NULL` döner ve hiçbir satır 
 **İlk Kurulum:**
 1. `public` şemasındaki tüm tabloları tek migration ile oluştur
 2. Kiracı tablolarında RLS'i etkinleştir + politikaları tanımla (aynı migration)
-3. `tenants` / `tenant_users`'a ilk kiracı ve kullanıcı kayıtlarını ekle
+3. `tenants`'a ilk kiracıyı, `users`'a ilk kullanıcıları ekle (seed)
 
 **Güncelleme:**
 ```bash

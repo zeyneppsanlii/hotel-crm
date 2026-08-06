@@ -9,6 +9,13 @@ http:
   method: GET
   url: "{{baseUrl}}/users"
   auth: inherit
+  headers:
+    # RLS scopes the result to this tenant. Without it the request is rejected 400.
+    - name: x-tenant-id
+      value: "{{tenantAlpha}}"
+    # Requires an authenticated user with users:manage (admin/manager). Run Login first.
+    - name: Authorization
+      value: "Bearer {{token}}"
 
 settings:
   encodeUrl: true
@@ -18,10 +25,13 @@ settings:
 
 examples:
   - name: 200 Response
-    description: List of users
+    description: List of users (scoped to the tenant in x-tenant-id)
     request:
       url: "{{baseUrl}}/users"
       method: GET
+      headers:
+        - name: x-tenant-id
+          value: "{{tenantAlpha}}"
     response:
       status: 200
       statusText: OK
@@ -34,6 +44,7 @@ examples:
           [
             {
               "id": "",
+              "tenantId": "",
               "email": "",
               "name": "",
               "createdAt": "",

@@ -6,7 +6,7 @@ import { TenantContextService } from './tenant-context.service';
 /**
  * Tenant-aware data-access layer. This is the single place that knows *how*
  * tenant isolation is enforced (single schema + RLS). Feature modules call
- * `run()` and work with a Prisma client that only ever sees the current
+ * `withCurrentTenant()` and work with a Prisma client that only ever sees the current
  * tenant's rows — they never touch `tenant_id` filters, `search_path`, or the
  * session variable directly.
  *
@@ -29,11 +29,11 @@ export class TenantPrismaService {
    * (e.g. to stamp `tenant_id` on inserts — RLS filters reads/writes but does
    * not populate the column).
    */
-  run<T>(
+  withCurrentTenant<T>(
     work: (tx: Prisma.TransactionClient, tenantId: string) => Promise<T>,
   ): Promise<T> {
     const tenantId = this.tenantContext.requireTenantId();
-    return this.runFor(tenantId, (tx) => work(tx, tenantId));
+    return this.withTenant(tenantId, (tx) => work(tx, tenantId));
   }
 
   /**
@@ -41,7 +41,7 @@ export class TenantPrismaService {
    * Useful for background jobs (queues, webhooks) that resolve the tenant
    * themselves rather than from an HTTP header.
    */
-  runFor<T>(
+  withTenant<T>(
     tenantId: string,
     work: (tx: Prisma.TransactionClient) => Promise<T>,
   ): Promise<T> {
