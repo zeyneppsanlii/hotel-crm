@@ -11,11 +11,7 @@ import { NextFunction, Request, Response } from 'express';
  */
 @Injectable()
 export class TenantMiddleware implements NestMiddleware {
-  use(
-    req: Request & { tenantId?: string },
-    _res: Response,
-    next: NextFunction,
-  ): void {
+  use(req: Request, _res: Response, next: NextFunction): void {
     const header = req.headers['x-tenant-id'];
     const tenantId = Array.isArray(header) ? header[0] : header;
     if (tenantId) {

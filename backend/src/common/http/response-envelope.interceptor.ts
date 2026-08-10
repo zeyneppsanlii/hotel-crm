@@ -20,9 +20,7 @@ export class ResponseEnvelopeInterceptor implements NestInterceptor {
     context: ExecutionContext,
     next: CallHandler,
   ): Observable<SuccessResponse<unknown>> {
-    const req = context
-      .switchToHttp()
-      .getRequest<Request & { requestId?: string }>();
+    const req = context.switchToHttp().getRequest<Request>();
 
     return next.handle().pipe(
       map((payload: unknown) => {
