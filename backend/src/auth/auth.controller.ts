@@ -10,7 +10,7 @@ import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { Public } from './decorators/public.decorator';
 import { CurrentUser } from './decorators/current-user.decorator';
-import { AuthenticatedUser } from './jwt-payload.interface';
+import { AuthenticatedUser } from './interfaces/jwt-payload.interface';
 
 @Controller('auth')
 export class AuthController {

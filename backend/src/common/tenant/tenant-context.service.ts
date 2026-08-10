@@ -1,6 +1,6 @@
 import { BadRequestException, Inject, Injectable, Scope } from '@nestjs/common';
 import { REQUEST } from '@nestjs/core';
-import { Request } from 'express';
+import type { Request } from 'express';
 
 /**
  * Request-scoped holder for the current tenant. Populated from the request by
@@ -10,9 +10,7 @@ import { Request } from 'express';
  */
 @Injectable({ scope: Scope.REQUEST })
 export class TenantContextService {
-  constructor(
-    @Inject(REQUEST) private readonly request: Request & { tenantId?: string },
-  ) {}
+  constructor(@Inject(REQUEST) private readonly request: Request) {}
 
   /** Current tenant id, or `undefined` if the request carried no `x-tenant-id`. */
   get tenantId(): string | undefined {

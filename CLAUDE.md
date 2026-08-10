@@ -17,9 +17,9 @@ Treat `.docs/*.md` as the **target design, not a description of existing code** 
 
 **Next up:** HCRM-22 — `/health` endpoint (Postgres + Redis checks, 200/503) + structured (JSON) logging carrying `requestId`, with PII masking. Then HCRM-23 (e2e test infra: real Postgres + fixtures), HCRM-24 (automated RLS isolation tests), HCRM-25 (`TenantGuard` — JWT `tenantId` vs `x-tenant-id`).
 
-*Done / in progress:* HCRM-20 (config + env validation via `ConfigModule`/zod) ✅ and HCRM-21 (standard response envelope + `AllExceptionsFilter` + Prisma error mapping + `x-request-id`, e2e-tested) ✅. Multi-tenant RLS isolation verified **manually** (superuser-bypass bug fixed — see multi-tenancy note; automated tests are HCRM-24). Auth module built (login, guards, per-user RBAC) — maps to HCRM-26/27/28, all *in progress*, not done: no refresh token, JWT payload uses the Model A single-tenant shape (not the docs' `tenants[]`), bcrypt cost 10 vs the required 12, no automated tests. See the Jira comments on those issues for the full gap list.
+_Done / in progress:_ HCRM-20 (config + env validation via `ConfigModule`/zod) ✅ and HCRM-21 (standard response envelope + `AllExceptionsFilter` + Prisma error mapping + `x-request-id`, e2e-tested) ✅. Multi-tenant RLS isolation verified **manually** (superuser-bypass bug fixed — see multi-tenancy note; automated tests are HCRM-24). Auth module built (login, guards, per-user RBAC) — maps to HCRM-26/27/28, all _in progress_, not done: no refresh token, JWT payload uses the Model A single-tenant shape (not the docs' `tenants[]`), bcrypt cost 10 vs the required 12, no automated tests. See the Jira comments on those issues for the full gap list.
 
-**Identity model (decided):** one user belongs to exactly one tenant — a person working at two hotels has two separate accounts (separate emails/passwords). Login therefore requires `x-tenant-id`. This is *not* the multi-tenant-membership model the docs' JWT sketch implied; `tenant_users` was dropped as redundant. If a single-login-across-hotels feature is ever needed it's an additive layer (a membership table + a cross-tenant reporting path), not a rewrite.
+**Identity model (decided):** one user belongs to exactly one tenant — a person working at two hotels has two separate accounts (separate emails/passwords). Login therefore requires `x-tenant-id`. This is _not_ the multi-tenant-membership model the docs' JWT sketch implied; `tenant_users` was dropped as redundant. If a single-login-across-hotels feature is ever needed it's an additive layer (a membership table + a cross-tenant reporting path), not a rewrite.
 
 ## Conventions & architecture decisions
 
@@ -29,6 +29,20 @@ Treat `.docs/*.md` as the **target design, not a description of existing code** 
 - **Dependency injection** everywhere (`@Injectable`, constructor injection) for testability and loose coupling.
 - **RBAC — two levels** (`src/auth/permissions.ts`): a coarse `role` (admin / manager / staff) and a fine-grained per-user `permissions` string list (`resource:action`, e.g. `guests:view`, `network:edit`). The role seeds a default permission set at user creation; the `permissions` column is the source of truth, so two same-role users can differ. Guard routes with `@RequirePermissions(...)` (enforced by the global `PermissionsGuard`); `admin` bypasses all checks.
 - **Multi-tenancy (designed, being built):** single schema + PostgreSQL Row-Level Security (RLS) — **not** schema-per-tenant / `search_path`. All tenants share the `public` schema; `tenants` / `tenant_users` are shared (no RLS), and every tenant-scoped table carries a `tenant_id uuid` column. Isolation is enforced in the database by RLS policies reading `current_setting('app.current_tenant_id')`, not by application-level `WHERE` clauses. Requests carry an `x-tenant-id` header; a `TenantMiddleware` resolves it, and a tenant-aware access layer runs each unit of work inside a transaction that first sets `app.current_tenant_id` (via `SET LOCAL` / `set_config(..., true)`). Feature modules stay ignorant of the mechanism — they only work with "the current tenant's data". (`tenants` is the only shared, non-RLS table; the once-planned `tenant_users` was dropped — see the identity-model note above.) **RLS is only enforced for a role that is NOT superuser and NOT `BYPASSRLS` — `FORCE ROW LEVEL SECURITY` does not override that.** So the app runtime connects as a dedicated non-superuser role `hotelcrm_app` (`DATABASE_URL`); migrations/DDL run as the superuser `hotelcrm` via Prisma `directUrl` (`DIRECT_DATABASE_URL`). The role is provisioned by `docker/postgres/init/01-app-role.sql` (auto-runs on a fresh volume; apply by hand on an existing one — it is idempotent). Tenant tables also use `FORCE ROW LEVEL SECURITY` so even the table owner is subject to policies. Connecting the runtime as a superuser/owner makes isolation silently fail (every tenant sees every row) — this applies in every environment, not just locally. This replaced an earlier schema-per-tenant design (see `Backend_Architecture.md` §7.4) — moved for Prisma compatibility, a single migration path, DB-enforced isolation, and lower operational overhead.
+
+## Strict Architecture & Coding Standards
+
+### 1. Repository Pattern (No Direct ORM Calls in Services)
+
+- Services (`*.service.ts`) MUST NOT directly call Prisma or define Prisma select objects (e.g. `PUBLIC_USER_SELECT`, `tx.user.findMany`).
+- All database queries and Prisma operations must be encapsulated inside a dedicated Repository layer (e.g., `users.repository.ts`).
+- Services must inject Repositories (`UsersRepository`) via constructor injection, keeping business logic clean and isolated from persistence details.
+
+### 2. Avoid Primitive Obsession & Inline Types
+
+- Avoid raw primitives (`id: string`, `email: string`) in domain/service method signatures when domain-specific types, DTOs, or Branded Types can be used (e.g., `UserId`, `UserEmail`, or proper DTO classes).
+- DO NOT use inline object types or inline intersection types (e.g., `Request & { tenantId?: string }` or `{ id: string }`) inside service constructor parameters or method signatures.
+- Always extract types and interfaces into dedicated `*.types.ts`, `*.interface.ts`, or DTO files inside the corresponding module.
 
 ## Current code (grounded — verify here, not against the docs)
 
