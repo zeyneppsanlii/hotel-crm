@@ -1,10 +1,14 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { LoggerModule } from 'nestjs-pino';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { validateEnv } from './config/env.validation';
+import { buildLoggerOptions } from './config/logger.config';
 import { PrismaModule } from './prisma/prisma.module';
+import { RedisModule } from './redis/redis.module';
+import { HealthModule } from './health/health.module';
 import { TenantModule } from './common/tenant/tenant.module';
 import { TenantMiddleware } from './common/tenant/tenant.middleware';
 import { RequestIdMiddleware } from './common/http/request-id.middleware';
@@ -19,10 +23,18 @@ import { PermissionsGuard } from './auth/guards/permissions.guard';
   imports: [
     // Loads .env and validates it (fail-fast). Global so ConfigService injects anywhere.
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
+    // Structured JSON logging (pino). See config/logger.config.ts.
+    LoggerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) =>
+        buildLoggerOptions(config.get<string>('NODE_ENV') ?? 'development'),
+    }),
     PrismaModule,
+    RedisModule,
     TenantModule,
     UsersModule,
     AuthModule,
+    HealthModule,
   ],
   controllers: [AppController],
   providers: [
