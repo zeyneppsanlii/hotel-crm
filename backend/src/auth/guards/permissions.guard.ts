@@ -6,7 +6,6 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Request } from 'express';
-import { AuthenticatedUser } from '../jwt-payload.interface';
 import { PERMISSIONS_KEY } from '../decorators/permissions.decorator';
 
 /**
@@ -27,9 +26,7 @@ export class PermissionsGuard implements CanActivate {
       return true;
     }
 
-    const req = context
-      .switchToHttp()
-      .getRequest<Request & { user?: AuthenticatedUser }>();
+    const req = context.switchToHttp().getRequest<Request>();
     const user = req.user;
     if (!user) {
       throw new ForbiddenException('No authenticated user');

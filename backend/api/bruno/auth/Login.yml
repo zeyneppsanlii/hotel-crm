@@ -28,7 +28,8 @@ http:
 scripts:
   postResponse: |-
     if (res.getStatus() === 200) {
-      bru.setEnvVar('token', res.getBody().accessToken);
+      // Responses are wrapped in the standard envelope: { success, data, meta }.
+      bru.setEnvVar('token', res.getBody().data.accessToken);
     }
 
 settings:

@@ -16,10 +16,11 @@ describe('AppController (e2e)', () => {
     await app.init();
   });
 
-  it('/ (GET)', () => {
-    return request(app.getHttpServer())
-      .get('/')
-      .expect(200)
-      .expect('Hello World!');
+  it('/ (GET) returns the success envelope', async () => {
+    const res = await request(app.getHttpServer()).get('/');
+    const body = res.body as { success: boolean; data: unknown };
+    expect(res.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.data).toBe('Hello World!');
   });
 });
