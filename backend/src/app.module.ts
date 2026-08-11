@@ -1,12 +1,19 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
-import { ConfigModule } from '@nestjs/config';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { LoggerModule } from 'nestjs-pino';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { validateEnv } from './config/env.validation';
+import { buildLoggerOptions } from './config/logger.config';
 import { PrismaModule } from './prisma/prisma.module';
+import { RedisModule } from './redis/redis.module';
+import { HealthModule } from './health/health.module';
 import { TenantModule } from './common/tenant/tenant.module';
 import { TenantMiddleware } from './common/tenant/tenant.middleware';
+import { RequestIdMiddleware } from './common/http/request-id.middleware';
+import { ResponseEnvelopeInterceptor } from './common/http/response-envelope.interceptor';
+import { AllExceptionsFilter } from './common/http/all-exceptions.filter';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
@@ -16,14 +23,26 @@ import { PermissionsGuard } from './auth/guards/permissions.guard';
   imports: [
     // Loads .env and validates it (fail-fast). Global so ConfigService injects anywhere.
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
+    // Structured JSON logging (pino). See config/logger.config.ts.
+    LoggerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) =>
+        buildLoggerOptions(config.get<string>('NODE_ENV') ?? 'development'),
+    }),
     PrismaModule,
+    RedisModule,
     TenantModule,
     UsersModule,
     AuthModule,
+    HealthModule,
   ],
   controllers: [AppController],
   providers: [
     AppService,
+    // Standard response contract: wrap every success in the envelope, turn every
+    // error into the error envelope.
+    { provide: APP_INTERCEPTOR, useClass: ResponseEnvelopeInterceptor },
+    { provide: APP_FILTER, useClass: AllExceptionsFilter },
     // Global guards. Order matters: authenticate first (populates req.user),
     // then enforce permissions. Routes opt out of auth with @Public().
     { provide: APP_GUARD, useClass: JwtAuthGuard },
@@ -32,7 +51,8 @@ import { PermissionsGuard } from './auth/guards/permissions.guard';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    // Resolve tenant context for every request from the x-tenant-id header.
-    consumer.apply(TenantMiddleware).forRoutes('*');
+    // Request id first (so it's available to everything downstream), then resolve
+    // tenant context from the x-tenant-id header.
+    consumer.apply(RequestIdMiddleware, TenantMiddleware).forRoutes('*');
   }
 }

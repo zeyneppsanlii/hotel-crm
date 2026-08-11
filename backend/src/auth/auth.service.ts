@@ -2,8 +2,9 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { UsersService } from '../users/users.service';
+import { toUserEmail, toUserId } from '../users/types/user.types';
 import { LoginDto } from './dto/login.dto';
-import { JwtPayload } from './jwt-payload.interface';
+import { JwtPayload } from './interfaces/jwt-payload.interface';
 
 @Injectable()
 export class AuthService {
@@ -18,7 +19,9 @@ export class AuthService {
    * tenant is a different account, so logging into the wrong hotel simply fails.
    */
   async login(dto: LoginDto) {
-    const user = await this.usersService.findByEmailWithSecret(dto.email);
+    const user = await this.usersService.findByEmailWithSecret(
+      toUserEmail(dto.email),
+    );
     // Uniform error whether the user is missing, inactive, or the password is
     // wrong — don't leak which accounts exist.
     if (!user || !user.isActive) {
@@ -29,7 +32,7 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    await this.usersService.markLoggedIn(user.id);
+    await this.usersService.markLoggedIn(toUserId(user.id));
 
     const payload: JwtPayload = {
       sub: user.id,
