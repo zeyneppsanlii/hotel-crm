@@ -9,10 +9,12 @@ import { Request } from 'express';
 export function buildLoggerOptions(nodeEnv: string): Params {
   const isDevelopment = nodeEnv === 'development';
   const isProduction = nodeEnv === 'production';
+  const isTest = nodeEnv === 'test';
 
   return {
     pinoHttp: {
-      level: isProduction ? 'info' : 'debug',
+      // Silent under test to keep the test output clean.
+      level: isTest ? 'silent' : isProduction ? 'info' : 'debug',
       // Dev: readable, colorized lines. Prod/test: plain JSON to stdout (also
       // avoids a pino-pretty worker thread in tests).
       transport: isDevelopment
