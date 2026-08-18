@@ -80,13 +80,19 @@ npm install
 # 3. Apply database migrations (creates tables + RLS policies)
 npx prisma migrate dev
 
-# 4. Run the development server (watch mode)
+# 4. Seed two demo hotels with users (admin/manager/staff), guests,
+#    conversations and tickets — idempotent, password for all: admin1234
+npm run seed
+
+# 5. Run the development server (watch mode)
 npm run start:dev
 ```
 
 The API listens on `http://localhost:3000`. Tenant-scoped requests require an
 `x-tenant-id` header; without it, tenant-scoped endpoints return a
-`missing tenant context` error by design (RLS fails closed).
+`missing tenant context` error by design (RLS fails closed). The two seeded
+tenant ids are `11111111-1111-1111-1111-111111111111` (Deniz Otel) and
+`22222222-2222-2222-2222-222222222222` (Dağ Resort).
 
 Other useful commands (run from `backend/`):
 
