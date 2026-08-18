@@ -17,6 +17,7 @@ import { AllExceptionsFilter } from './common/http/all-exceptions.filter';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
+import { TenantGuard } from './auth/guards/tenant.guard';
 import { PermissionsGuard } from './auth/guards/permissions.guard';
 
 @Module({
@@ -44,8 +45,10 @@ import { PermissionsGuard } from './auth/guards/permissions.guard';
     { provide: APP_INTERCEPTOR, useClass: ResponseEnvelopeInterceptor },
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     // Global guards. Order matters: authenticate first (populates req.user),
-    // then enforce permissions. Routes opt out of auth with @Public().
+    // then confirm the token's tenant matches the x-tenant-id header, then
+    // enforce permissions. Routes opt out of auth with @Public().
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: TenantGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
   ],
 })
