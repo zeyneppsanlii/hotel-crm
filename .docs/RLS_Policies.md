@@ -45,14 +45,18 @@ otomatik; mevcut volume'de elle bir kez uygulanır — idempotent).
 3. Policy bu oturum değişkenini okur:
    ```sql
    CREATE POLICY tenant_isolation ON <table>
-     USING      (tenant_id = current_setting('app.current_tenant_id', true)::uuid)
-     WITH CHECK (tenant_id = current_setting('app.current_tenant_id', true)::uuid);
+     USING      (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+     WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
    ```
    - `USING` → hangi satırlar **okunabilir/görünür** (SELECT/UPDATE/DELETE).
    - `WITH CHECK` → hangi satırlar **yazılabilir** (INSERT/UPDATE). Başka tenant'ın
      id'siyle satır yazmayı engeller.
-   - `current_setting(..., true)` ikinci arg = `missing_ok`: değişken set değilse
-     `NULL` döner, `tenant_id = NULL` → hiçbir satır. Yani **bağlam yoksa 0 satır**.
+   - `current_setting(..., true)` ikinci arg = `missing_ok`: değişken hiç set edilmediyse
+     `NULL` döner. Ama `SET LOCAL` bir kez çalıştıktan sonra havuzdaki bağlantıda değer
+     `''` (boş string)'e döner ve `''::uuid` **hata verir** — bu yüzden `NULLIF(..., '')`
+     ile boş string de `NULL`'a çevrilir. Sonuç: **bağlam yoksa (hata değil) 0 satır**,
+     güvenli varsayılan. (Bkz. migration `20260812150000_rls_nullif_empty_context`; bu
+     eksik HCRM-24 izolasyon testleriyle yakalandı.)
 
 Her kiracı tablosu ayrıca `FORCE ROW LEVEL SECURITY` kullanır ki tablo sahibi
 (owner) bile policy'lere tabi olsun.
@@ -81,8 +85,8 @@ Her yeni **tenant-scoped** tablo için:
    ALTER TABLE "<table>" ENABLE ROW LEVEL SECURITY;
    ALTER TABLE "<table>" FORCE  ROW LEVEL SECURITY;
    CREATE POLICY tenant_isolation ON "<table>"
-     USING      ("tenant_id" = current_setting('app.current_tenant_id', true)::uuid)
-     WITH CHECK ("tenant_id" = current_setting('app.current_tenant_id', true)::uuid);
+     USING      ("tenant_id" = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+     WITH CHECK ("tenant_id" = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
    ```
 4. `hotelcrm_app` yetkileri: `ALTER DEFAULT PRIVILEGES` sayesinde yeni tablolar
    otomatik granted gelir (init script'e bakın). Ekstra iş gerekmez.
