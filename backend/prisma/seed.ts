@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { BCRYPT_ROUNDS } from '../src/auth/password.constants';
 import { ROLE_DEFAULT_PERMISSIONS, Role } from '../src/auth/permissions';
 
 /**
@@ -69,7 +70,7 @@ async function upsertUser(input: {
   fullName: string;
   role: Role;
 }) {
-  const passwordHash = await bcrypt.hash('admin1234', 10);
+  const passwordHash = await bcrypt.hash('admin1234', BCRYPT_ROUNDS);
   return prisma.user.upsert({
     where: { tenantId_email: { tenantId: input.tenantId, email: input.email } },
     update: {

@@ -7,6 +7,12 @@ export interface JwtPayload {
   permissions: string[];
 }
 
+export interface RefreshTokenPayload {
+  sub: string;
+  tenantId: string;
+  tokenType: 'refresh';
+}
+
 /** Shape attached to `req.user` after JwtStrategy validates the token. */
 export interface AuthenticatedUser {
   userId: string;
