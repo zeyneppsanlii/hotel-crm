@@ -20,6 +20,7 @@ export interface SeedUserInput {
   role?: 'admin' | 'manager' | 'staff';
   permissions?: string[];
   password?: string;
+  isActive?: boolean;
 }
 
 /** Default password for seeded users, so tests can log them in. */
@@ -38,15 +39,23 @@ export async function seedTenant(input: {
   return res.rows[0];
 }
 
+/**
+ * Deliberately hashes at cost 10, NOT the app's BCRYPT_ROUNDS (12). Two reasons:
+ * it keeps the suite fast (bcrypt 12 costs ~4x per user seeded), and it makes the
+ * tests exercise the real-world case where stored hashes predate a cost increase —
+ * bcrypt reads the cost from the hash, so login must verify them either way.
+ */
+const FIXTURE_BCRYPT_ROUNDS = 10;
+
 export async function seedUser(input: SeedUserInput): Promise<SeededUser> {
   const passwordHash = await bcrypt.hash(
     input.password ?? FIXTURE_PASSWORD,
-    10,
+    FIXTURE_BCRYPT_ROUNDS,
   );
   const res = await getAdminPool().query<SeededUser>(
     `INSERT INTO users
        (id, tenant_id, email, password_hash, full_name, role, permissions, is_active, created_at, updated_at)
-     VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, true, now(), now())
+     VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, now(), now())
      RETURNING id, email, tenant_id AS "tenantId"`,
     [
       input.tenantId,
@@ -55,6 +64,7 @@ export async function seedUser(input: SeedUserInput): Promise<SeededUser> {
       input.fullName ?? 'Test User',
       input.role ?? 'staff',
       input.permissions ?? [],
+      input.isActive ?? true,
     ],
   );
   return res.rows[0];
