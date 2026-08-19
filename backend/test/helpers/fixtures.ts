@@ -20,6 +20,7 @@ export interface SeedUserInput {
   role?: 'admin' | 'manager' | 'staff';
   permissions?: string[];
   password?: string;
+  isActive?: boolean;
 }
 
 /** Default password for seeded users, so tests can log them in. */
@@ -54,7 +55,7 @@ export async function seedUser(input: SeedUserInput): Promise<SeededUser> {
   const res = await getAdminPool().query<SeededUser>(
     `INSERT INTO users
        (id, tenant_id, email, password_hash, full_name, role, permissions, is_active, created_at, updated_at)
-     VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, true, now(), now())
+     VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, now(), now())
      RETURNING id, email, tenant_id AS "tenantId"`,
     [
       input.tenantId,
@@ -63,6 +64,7 @@ export async function seedUser(input: SeedUserInput): Promise<SeededUser> {
       input.fullName ?? 'Test User',
       input.role ?? 'staff',
       input.permissions ?? [],
+      input.isActive ?? true,
     ],
   );
   return res.rows[0];
