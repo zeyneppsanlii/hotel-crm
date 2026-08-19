@@ -1,11 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
+import { BCRYPT_ROUNDS } from '../auth/password.constants';
 import { ROLE_DEFAULT_PERMISSIONS, Role } from '../auth/permissions';
 import { CreateUserDto } from './dto/create-user.dto';
 import { PublicUser, UsersRepository } from './users.repository';
 import { UserEmail, UserId } from './types/user.types';
-
-const BCRYPT_ROUNDS = 10;
 
 /**
  * User business logic. Persistence is delegated to UsersRepository — no Prisma

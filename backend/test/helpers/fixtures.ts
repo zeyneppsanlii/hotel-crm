@@ -38,10 +38,18 @@ export async function seedTenant(input: {
   return res.rows[0];
 }
 
+/**
+ * Deliberately hashes at cost 10, NOT the app's BCRYPT_ROUNDS (12). Two reasons:
+ * it keeps the suite fast (bcrypt 12 costs ~4x per user seeded), and it makes the
+ * tests exercise the real-world case where stored hashes predate a cost increase —
+ * bcrypt reads the cost from the hash, so login must verify them either way.
+ */
+const FIXTURE_BCRYPT_ROUNDS = 10;
+
 export async function seedUser(input: SeedUserInput): Promise<SeededUser> {
   const passwordHash = await bcrypt.hash(
     input.password ?? FIXTURE_PASSWORD,
-    10,
+    FIXTURE_BCRYPT_ROUNDS,
   );
   const res = await getAdminPool().query<SeededUser>(
     `INSERT INTO users
