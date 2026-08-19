@@ -22,6 +22,8 @@ export const envSchema = z.object({
     .optional(),
   JWT_SECRET: z.string().min(16, 'must be at least 16 characters'),
   JWT_EXPIRES_IN: z.string().min(1).default('24h'),
+  JWT_REFRESH_SECRET: z.string().min(16, 'must be at least 16 characters'),
+  JWT_REFRESH_EXPIRES_IN: z.string().min(1).default('30d'),
   REDIS_URL: z
     .string()
     .regex(/^redis:\/\//, 'must be a redis:// connection string'),
