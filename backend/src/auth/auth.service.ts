@@ -1,23 +1,21 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
-import type { SignOptions } from 'jsonwebtoken';
 import { UsersService } from '../users/users.service';
 import { toUserEmail, toUserId } from '../users/types/user.types';
 import { LoginDto } from './dto/login.dto';
-import {
-  JwtPayload,
-  RefreshTokenPayload,
-} from './interfaces/jwt-payload.interface';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { JwtPayload } from './interfaces/jwt-payload.interface';
+import { RefreshTokenService } from './refresh-token.service';
 import { LoginResult, TokenSubject } from './types/auth.types';
+import { RefreshTokenFamilyId, TokenPair } from './types/refresh-token.types';
 
 @Injectable()
 export class AuthService {
   constructor(
     private readonly usersService: UsersService,
+    private readonly refreshTokenService: RefreshTokenService,
     private readonly jwt: JwtService,
-    private readonly config: ConfigService,
   ) {}
 
   /**
@@ -41,14 +39,13 @@ export class AuthService {
 
     await this.usersService.markLoggedIn(toUserId(user.id));
 
-    const [accessToken, refreshToken] = await Promise.all([
-      this.signAccessToken(user),
-      this.signRefreshToken(user),
-    ]);
+    const tokens = await this.issueSession(
+      user,
+      this.refreshTokenService.startFamily(),
+    );
 
     return {
-      accessToken,
-      refreshToken,
+      ...tokens,
       user: {
         id: user.id,
         email: user.email,
@@ -57,6 +54,39 @@ export class AuthService {
         permissions: user.permissions,
       },
     };
+  }
+
+  async refresh(dto: RefreshTokenDto): Promise<TokenPair> {
+    const consumed = await this.refreshTokenService.consume(dto.refreshToken);
+
+    const user = await this.usersService.findByIdInTenant(
+      consumed.userId,
+      consumed.tenantId,
+    );
+    if (!user || !user.isActive) {
+      await this.refreshTokenService.revokeFamily(
+        consumed.tenantId,
+        consumed.familyId,
+      );
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    return this.issueSession(user, consumed.familyId);
+  }
+
+  logout(dto: RefreshTokenDto): Promise<void> {
+    return this.refreshTokenService.revokeSession(dto.refreshToken);
+  }
+
+  private async issueSession(
+    subject: TokenSubject,
+    familyId: RefreshTokenFamilyId,
+  ): Promise<TokenPair> {
+    const [accessToken, refreshToken] = await Promise.all([
+      this.signAccessToken(subject),
+      this.refreshTokenService.issue(subject, familyId),
+    ]);
+    return { accessToken, refreshToken };
   }
 
   private signAccessToken(subject: TokenSubject): Promise<string> {
@@ -68,20 +98,5 @@ export class AuthService {
       permissions: subject.permissions,
     };
     return this.jwt.signAsync(payload);
-  }
-
-  private signRefreshToken(subject: TokenSubject): Promise<string> {
-    const payload: RefreshTokenPayload = {
-      sub: subject.id,
-      tenantId: subject.tenantId,
-      tokenType: 'refresh',
-    };
-    return this.jwt.signAsync(payload, {
-      secret: this.config.getOrThrow<string>('JWT_REFRESH_SECRET'),
-      expiresIn: this.config.get<string>(
-        'JWT_REFRESH_EXPIRES_IN',
-        '30d',
-      ) as SignOptions['expiresIn'],
-    });
   }
 }
