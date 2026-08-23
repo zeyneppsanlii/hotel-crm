@@ -1,0 +1,25 @@
+info:
+  name: Logout
+  type: http
+  seq: 4
+  tags:
+    - auth
+
+# Revokes the session chain behind this refresh token — every later "Refresh"
+# returns 401. Idempotent: 204 whether or not the token was known.
+http:
+  method: POST
+  url: "{{baseUrl}}/auth/logout"
+  body:
+    type: json
+    data: |-
+      {
+        "refreshToken": "{{refreshToken}}"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

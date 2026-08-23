@@ -1,0 +1,35 @@
+info:
+  name: Refresh
+  type: http
+  seq: 3
+  tags:
+    - auth
+
+# Exchanges the refresh token for a new pair. Run "Login" first — it captures
+# `refreshToken` into the environment. Rotation: the token you send here is
+# revoked, so replaying it revokes the whole session chain (reuse detection).
+# No x-tenant-id header: the refresh token carries its own tenant.
+http:
+  method: POST
+  url: "{{baseUrl}}/auth/refresh"
+  body:
+    type: json
+    data: |-
+      {
+        "refreshToken": "{{refreshToken}}"
+      }
+  auth: inherit
+
+# Capture the rotated pair, or the previous one stops working.
+scripts:
+  postResponse: |-
+    if (res.getStatus() === 200) {
+      bru.setEnvVar('token', res.getBody().data.accessToken);
+      bru.setEnvVar('refreshToken', res.getBody().data.refreshToken);
+    }
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

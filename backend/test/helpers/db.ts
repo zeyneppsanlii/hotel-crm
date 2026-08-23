@@ -75,6 +75,7 @@ export async function asAppRoleNoContext<T>(
 const TABLES = [
   'tenants',
   'users',
+  'refresh_tokens',
   'guests',
   'conversations',
   'messages',

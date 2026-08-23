@@ -11,6 +11,7 @@ export interface RefreshTokenPayload {
   sub: string;
   tenantId: string;
   tokenType: 'refresh';
+  jti: string;
 }
 
 /** Shape attached to `req.user` after JwtStrategy validates the token. */

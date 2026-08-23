@@ -14,9 +14,9 @@ Tek şema (`public`) + PostgreSQL Row-Level Security. Şema-per-tenant **değil*
 - **Paylaşılan tablo (RLS YOK):** `tenants`. Yönetimseldir ve tenant bağlamı
   kurulmadan sorgulanabilir. (Bir zamanlar planlanan `tenant_users` kaldırıldı —
   kimlik modeli tek-tenant; bkz. Backend_Architecture §8.1.)
-- **Kiracıya ait tablolar (tenant_id + RLS):** `users`, `guests`, `conversations`,
-  `messages`, `tickets`, `devices`, `device_alerts`. Her biri `tenant_id uuid NOT NULL`
-  taşır ve `tenant_isolation` policy'siyle korunur.
+- **Kiracıya ait tablolar (tenant_id + RLS):** `users`, `refresh_tokens`, `guests`,
+  `conversations`, `messages`, `tickets`, `devices`, `device_alerts`. Her biri
+  `tenant_id uuid NOT NULL` taşır ve `tenant_isolation` policy'siyle korunur.
 
 ## 2. İki-rol kuralı (EN KRİTİK NOKTA)
 
