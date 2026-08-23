@@ -23,13 +23,14 @@ http:
     - name: x-tenant-id
       value: "{{tenantAlpha}}"
 
-# Capture the returned token into the `token` env var so protected requests can
-# use it as {{token}}.
+# Capture the returned tokens into env vars so protected requests can use
+# {{token}}, and Refresh/Logout can use {{refreshToken}}.
 scripts:
   postResponse: |-
     if (res.getStatus() === 200) {
       // Responses are wrapped in the standard envelope: { success, data, meta }.
       bru.setEnvVar('token', res.getBody().data.accessToken);
+      bru.setEnvVar('refreshToken', res.getBody().data.refreshToken);
     }
 
 settings:

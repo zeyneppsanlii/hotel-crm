@@ -92,6 +92,7 @@ export async function seedTwoTenants() {
 /** One row's id in every tenant-scoped table, for a single tenant. */
 export interface SeededRows {
   users: string;
+  refreshTokens: string;
   guests: string;
   conversations: string;
   messages: string;
@@ -114,11 +115,18 @@ export async function seedRowInEachTable(
     return res.rows[0].id;
   };
 
+  const users = await insert(
+    `INSERT INTO users (id, tenant_id, email, password_hash, full_name, created_at, updated_at)
+     VALUES (gen_random_uuid(), $1, $2, 'hash', 'U', now(), now()) RETURNING id`,
+    [tenantId, `rls-${tenantId}@x.test`],
+  );
+
   return {
-    users: await insert(
-      `INSERT INTO users (id, tenant_id, email, password_hash, full_name, created_at, updated_at)
-       VALUES (gen_random_uuid(), $1, $2, 'hash', 'U', now(), now()) RETURNING id`,
-      [tenantId, `rls-${tenantId}@x.test`],
+    users,
+    refreshTokens: await insert(
+      `INSERT INTO refresh_tokens (id, tenant_id, user_id, family_id, token_hash, expires_at, created_at)
+       VALUES (gen_random_uuid(), $1, $2, gen_random_uuid(), $3, now() + interval '30 days', now()) RETURNING id`,
+      [tenantId, users, `rls-hash-${tenantId}`],
     ),
     guests: await insert(
       `INSERT INTO guests (id, tenant_id, full_name, phone, created_at, updated_at)

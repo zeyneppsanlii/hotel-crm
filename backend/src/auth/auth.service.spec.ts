@@ -3,6 +3,8 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { UsersService } from '../users/users.service';
 import { AuthService } from './auth.service';
+import { RefreshTokenService } from './refresh-token.service';
+import { RefreshTokensRepository } from './refresh-tokens.repository';
 import {
   JwtPayload,
   RefreshTokenPayload,
@@ -45,7 +47,19 @@ describe('AuthService token issuance', () => {
       get: jest.fn().mockReturnValue('30d'),
     } as unknown as ConfigService;
 
-    service = new AuthService(usersService, jwt, config);
+    const refreshTokens = {
+      create: jest.fn().mockResolvedValue(undefined),
+      findByHash: jest.fn().mockResolvedValue(null),
+      claim: jest.fn().mockResolvedValue(true),
+      revokeFamily: jest.fn().mockResolvedValue(undefined),
+      deleteExpiredForUser: jest.fn().mockResolvedValue(undefined),
+    } as unknown as RefreshTokensRepository;
+
+    service = new AuthService(
+      usersService,
+      new RefreshTokenService(jwt, config, refreshTokens),
+      jwt,
+    );
   });
 
   it('issues both an access token and a refresh token on login', async () => {
