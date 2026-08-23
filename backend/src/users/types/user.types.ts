@@ -1,3 +1,4 @@
+import { Brand } from '../../common/types/brand';
 import { Role } from '../../auth/permissions';
 
 /**
@@ -5,8 +6,6 @@ import { Role } from '../../auth/permissions';
  * email is expected, which prevents mixing them up. At runtime they are plain
  * strings; the brand exists only at compile time. Build them with the helpers.
  */
-type Brand<T, B extends string> = T & { readonly __brand: B };
-
 export type UserId = Brand<string, 'UserId'>;
 export type UserEmail = Brand<string, 'UserEmail'>;
 

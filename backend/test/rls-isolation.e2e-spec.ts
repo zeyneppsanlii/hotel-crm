@@ -10,6 +10,7 @@ import { SeededRows, seedRowInEachTable, seedTenant } from './helpers/fixtures';
 // Every tenant-scoped table that must enforce RLS.
 const TENANT_TABLES = [
   'users',
+  'refresh_tokens',
   'guests',
   'conversations',
   'messages',

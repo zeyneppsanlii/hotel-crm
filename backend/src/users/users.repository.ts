@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, User } from '@prisma/client';
 import { TenantPrismaService } from '../common/tenant/tenant-prisma.service';
+import { TenantId } from '../common/tenant/tenant.types';
 import { NewUserRecord, UserEmail, UserId } from './types/user.types';
 
 // Every column except password_hash — the safe shape to return over HTTP.
@@ -43,6 +44,12 @@ export class UsersRepository {
         data: { tenantId, ...data },
         select: PUBLIC_USER_SELECT,
       }),
+    );
+  }
+
+  findByIdInTenant(id: UserId, tenantId: TenantId): Promise<PublicUser | null> {
+    return this.tenantPrisma.withTenant(tenantId, (tx) =>
+      tx.user.findFirst({ where: { id }, select: PUBLIC_USER_SELECT }),
     );
   }
 

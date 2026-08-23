@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
+import { TenantId } from '../common/tenant/tenant.types';
 import { BCRYPT_ROUNDS } from '../auth/password.constants';
 import { ROLE_DEFAULT_PERMISSIONS, Role } from '../auth/permissions';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -34,6 +35,10 @@ export class UsersService {
 
   findByEmailWithSecret(email: UserEmail) {
     return this.usersRepository.findByEmailWithSecret(email);
+  }
+
+  findByIdInTenant(id: UserId, tenantId: TenantId): Promise<PublicUser | null> {
+    return this.usersRepository.findByIdInTenant(id, tenantId);
   }
 
   markLoggedIn(id: UserId) {
