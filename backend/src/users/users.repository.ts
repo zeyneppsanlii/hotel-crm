@@ -1,8 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, User } from '@prisma/client';
+import { PageRequest, skipFor } from '../common/http/page-request';
 import { TenantPrismaService } from '../common/tenant/tenant-prisma.service';
 import { TenantId } from '../common/tenant/tenant.types';
-import { NewUserRecord, UserEmail, UserId } from './types/user.types';
+import {
+  NewUserRecord,
+  UserEmail,
+  UserId,
+  UserUpdateRecord,
+} from './types/user.types';
 
 // Every column except password_hash — the safe shape to return over HTTP.
 const PUBLIC_USER_SELECT = {
@@ -23,6 +29,11 @@ export type PublicUser = Prisma.UserGetPayload<{
   select: typeof PUBLIC_USER_SELECT;
 }>;
 
+export interface UserPage {
+  items: PublicUser[];
+  total: number;
+}
+
 /**
  * All Prisma access for users lives here (Repository Pattern) — services never
  * touch Prisma directly. Every query runs through the tenant-aware layer, so RLS
@@ -32,10 +43,47 @@ export type PublicUser = Prisma.UserGetPayload<{
 export class UsersRepository {
   constructor(private readonly tenantPrisma: TenantPrismaService) {}
 
-  findAll(): Promise<PublicUser[]> {
+  /**
+   * Page and total are read in the SAME transaction as the tenant context, so
+   * the count can never describe a different tenant's rows than the page does.
+   * Ordering carries `id` as a tiebreaker: without it, users sharing a
+   * `createdAt` could shuffle between pages and be shown twice or skipped.
+   */
+  async findPage(page: PageRequest): Promise<UserPage> {
+    return this.tenantPrisma.withCurrentTenant(async (tx) => {
+      const [items, total] = await Promise.all([
+        tx.user.findMany({
+          select: PUBLIC_USER_SELECT,
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          skip: skipFor(page),
+          take: page.limit,
+        }),
+        tx.user.count(),
+      ]);
+      return { items, total };
+    });
+  }
+
+  findById(id: UserId): Promise<PublicUser | null> {
     return this.tenantPrisma.withCurrentTenant((tx) =>
-      tx.user.findMany({ select: PUBLIC_USER_SELECT }),
+      tx.user.findFirst({ where: { id }, select: PUBLIC_USER_SELECT }),
     );
+  }
+
+  /**
+   * Scoped by `updateMany` rather than `update`: a bare `update` matches on the
+   * primary key alone, which RLS turns into a "record not found" crash for
+   * another tenant's id. `updateMany` reports zero rows instead, so the service
+   * can answer a clean 404.
+   */
+  async update(id: UserId, data: UserUpdateRecord): Promise<PublicUser | null> {
+    return this.tenantPrisma.withCurrentTenant(async (tx) => {
+      const { count } = await tx.user.updateMany({ where: { id }, data });
+      if (count === 0) {
+        return null;
+      }
+      return tx.user.findFirst({ where: { id }, select: PUBLIC_USER_SELECT });
+    });
   }
 
   create(data: NewUserRecord): Promise<PublicUser> {
