@@ -27,6 +27,11 @@ export const envSchema = z.object({
   REDIS_URL: z
     .string()
     .regex(/^redis:\/\//, 'must be a redis:// connection string'),
+  // Brute-force lockout: how many failed logins are tolerated per
+  // tenant+email+IP, and how long the lockout lasts once the threshold is hit.
+  // Lowered in .env.test so the suite does not spend real seconds waiting.
+  LOGIN_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
+  LOGIN_LOCKOUT_SECONDS: z.coerce.number().int().positive().default(900),
 });
 
 export type Env = z.infer<typeof envSchema>;

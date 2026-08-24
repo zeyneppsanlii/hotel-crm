@@ -5,6 +5,7 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 import { closeAdminPool, getAdminPool, resetDatabase } from './helpers/db';
+import { closeRedis, resetLoginAttempts } from './helpers/redis';
 import { FIXTURE_PASSWORD, seedTenant, seedUser } from './helpers/fixtures';
 
 interface LoginBody {
@@ -64,9 +65,16 @@ describe('Auth (e2e)', () => {
     });
   });
 
+  // These specs deliberately fail logins; without this the brute-force counter
+  // would carry over and lock the account mid-suite.
+  beforeEach(async () => {
+    await resetLoginAttempts();
+  });
+
   afterAll(async () => {
     await app.close();
     await closeAdminPool();
+    await closeRedis();
   });
 
   describe('successful login', () => {

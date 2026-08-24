@@ -3,8 +3,11 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { UsersService } from '../users/users.service';
 import { AuthService } from './auth.service';
+import { TenantContextService } from '../common/tenant/tenant-context.service';
+import { LoginThrottleService } from './login-throttle.service';
 import { RefreshTokenService } from './refresh-token.service';
 import { RefreshTokensRepository } from './refresh-tokens.repository';
+import { toClientIp } from './types/login-attempt.types';
 import {
   JwtPayload,
   RefreshTokenPayload,
@@ -13,6 +16,7 @@ import {
 const ACCESS_SECRET = 'access-secret-at-least-16-chars';
 const REFRESH_SECRET = 'refresh-secret-at-least-16-chars';
 const PASSWORD = 'secret1234';
+const CLIENT_IP = toClientIp('203.0.113.10');
 
 const SEEDED_USER = {
   id: 'user-1',
@@ -55,18 +59,29 @@ describe('AuthService token issuance', () => {
       deleteExpiredForUser: jest.fn().mockResolvedValue(undefined),
     } as unknown as RefreshTokensRepository;
 
+    const loginThrottle = {
+      assertNotLocked: jest.fn().mockResolvedValue(undefined),
+      recordFailure: jest.fn().mockResolvedValue(undefined),
+      reset: jest.fn().mockResolvedValue(undefined),
+    } as unknown as LoginThrottleService;
+    const tenantContext = {
+      requireTenantId: jest.fn().mockReturnValue(SEEDED_USER.tenantId),
+    } as unknown as TenantContextService;
+
     service = new AuthService(
       usersService,
       new RefreshTokenService(jwt, config, refreshTokens),
+      loginThrottle,
+      tenantContext,
       jwt,
     );
   });
 
   it('issues both an access token and a refresh token on login', async () => {
-    const result = await service.login({
-      email: SEEDED_USER.email,
-      password: PASSWORD,
-    });
+    const result = await service.login(
+      { email: SEEDED_USER.email, password: PASSWORD },
+      CLIENT_IP,
+    );
 
     expect(result.accessToken).toEqual(expect.any(String));
     expect(result.refreshToken).toEqual(expect.any(String));
@@ -75,10 +90,10 @@ describe('AuthService token issuance', () => {
   });
 
   it('signs the refresh token with a separate secret so it cannot pass as an access token', async () => {
-    const { refreshToken } = await service.login({
-      email: SEEDED_USER.email,
-      password: PASSWORD,
-    });
+    const { refreshToken } = await service.login(
+      { email: SEEDED_USER.email, password: PASSWORD },
+      CLIENT_IP,
+    );
 
     expect(() => {
       jwt.verify<RefreshTokenPayload>(refreshToken, { secret: ACCESS_SECRET });
@@ -94,10 +109,10 @@ describe('AuthService token issuance', () => {
   });
 
   it('keeps the access token payload single-tenant with permissions', async () => {
-    const { accessToken } = await service.login({
-      email: SEEDED_USER.email,
-      password: PASSWORD,
-    });
+    const { accessToken } = await service.login(
+      { email: SEEDED_USER.email, password: PASSWORD },
+      CLIENT_IP,
+    );
 
     const payload = jwt.verify<JwtPayload>(accessToken, {
       secret: ACCESS_SECRET,
