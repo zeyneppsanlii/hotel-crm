@@ -1,0 +1,37 @@
+info:
+  name: Update a user
+  type: http
+  seq: 4
+  tags:
+    - users
+
+# Updatable fields: fullName, phone, role, permissions, isActive. Email and
+# password are NOT updatable here.
+#
+# Sending `role` WITHOUT `permissions` re-seeds that role's default permission
+# set — so a demotion actually drops the elevated permissions. Send both if you
+# want a custom list.
+#
+# Deactivation is `isActive: false` — the row stays, but the user cannot log in.
+http:
+  method: PATCH
+  url: "{{baseUrl}}/users/{{userId}}"
+  body:
+    type: json
+    data: |-
+      {
+        "fullName": "Güncel Ad",
+        "role": "manager"
+      }
+  auth: inherit
+  headers:
+    - name: x-tenant-id
+      value: "{{tenantAlpha}}"
+    - name: Authorization
+      value: "Bearer {{token}}"
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
