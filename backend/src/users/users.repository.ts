@@ -70,6 +70,12 @@ export class UsersRepository {
     );
   }
 
+  countActiveAdmins(): Promise<number> {
+    return this.tenantPrisma.withCurrentTenant((tx) =>
+      tx.user.count({ where: { role: 'admin', isActive: true } }),
+    );
+  }
+
   /**
    * Scoped by `updateMany` rather than `update`: a bare `update` matches on the
    * primary key alone, which RLS turns into a "record not found" crash for

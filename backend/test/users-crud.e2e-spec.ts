@@ -25,6 +25,8 @@ interface UserListBody {
   meta: { page: number; limit: number; total: number; hasMore: boolean };
 }
 
+const CREATED_PASSWORD = 'secret1234';
+
 describe('Users CRUD (e2e)', () => {
   let app: INestApplication<App>;
   let alphaId: string;
@@ -35,11 +37,17 @@ describe('Users CRUD (e2e)', () => {
   let staffUserId: string;
   let betaUserId: string;
 
-  const login = async (tenantId: string, email: string): Promise<string> => {
+  // Seeded users carry FIXTURE_PASSWORD; users created through POST /users in
+  // these tests are given CREATED_PASSWORD.
+  const login = async (
+    tenantId: string,
+    email: string,
+    password: string = FIXTURE_PASSWORD,
+  ): Promise<string> => {
     const res = await request(app.getHttpServer())
       .post('/auth/login')
       .set('x-tenant-id', tenantId)
-      .send({ email, password: FIXTURE_PASSWORD });
+      .send({ email, password });
     return (res.body as LoginBody).data.accessToken;
   };
 
@@ -123,7 +131,7 @@ describe('Users CRUD (e2e)', () => {
         .set('Authorization', `Bearer ${staffToken}`)
         .send({
           email: 'sneaky@alpha.test',
-          password: 'secret1234',
+          password: CREATED_PASSWORD,
           fullName: 'Sneaky',
         });
 
@@ -359,11 +367,114 @@ describe('Users CRUD (e2e)', () => {
     });
   });
 
+  describe('admin lockout protection', () => {
+    let adminUserId: string;
+
+    beforeAll(async () => {
+      const { rows } = await getAdminPool().query<{ id: string }>(
+        'SELECT id FROM users WHERE tenant_id = $1 AND email = $2',
+        [alphaId, 'admin@alpha.test'],
+      );
+      adminUserId = rows[0].id;
+    });
+
+    it('refuses to let an admin deactivate their own account', async () => {
+      const res = await asAdmin('patch', `/users/${adminUserId}`).send({
+        isActive: false,
+      });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('refuses to let an admin demote themselves', async () => {
+      const res = await asAdmin('patch', `/users/${adminUserId}`).send({
+        role: 'staff',
+      });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('still lets an admin edit their own profile', async () => {
+      const res = await asAdmin('patch', `/users/${adminUserId}`).send({
+        fullName: 'Kendi Adım',
+      });
+
+      expect(res.status).toBe(200);
+    });
+
+    it('refuses to demote the last active admin, even from another account', async () => {
+      const manager = await asAdmin('post', '/users').send({
+        email: 'mudur@alpha.test',
+        password: CREATED_PASSWORD,
+        fullName: 'Müdür',
+        role: 'manager',
+      });
+      const managerToken = await login(
+        alphaId,
+        'mudur@alpha.test',
+        CREATED_PASSWORD,
+      );
+
+      const res = await request(app.getHttpServer())
+        .patch(`/users/${adminUserId}`)
+        .set('x-tenant-id', alphaId)
+        .set('Authorization', `Bearer ${managerToken}`)
+        .send({ role: 'staff' });
+
+      expect(res.status).toBe(409);
+      expect((manager.body as UserBody).data.role).toBe('manager');
+    });
+
+    it('leaves the last admin active and still able to log in after that refusal', async () => {
+      const managerToken = await login(
+        alphaId,
+        'mudur@alpha.test',
+        CREATED_PASSWORD,
+      );
+      await request(app.getHttpServer())
+        .patch(`/users/${adminUserId}`)
+        .set('x-tenant-id', alphaId)
+        .set('Authorization', `Bearer ${managerToken}`)
+        .send({ isActive: false });
+
+      await resetLoginAttempts();
+      const res = await request(app.getHttpServer())
+        .post('/auth/login')
+        .set('x-tenant-id', alphaId)
+        .send({ email: 'admin@alpha.test', password: FIXTURE_PASSWORD });
+
+      expect(res.status).toBe(200);
+    });
+
+    it('allows demoting an admin once a second admin exists', async () => {
+      await asAdmin('post', '/users').send({
+        email: 'ikinci-admin@alpha.test',
+        password: CREATED_PASSWORD,
+        fullName: 'İkinci Admin',
+        role: 'admin',
+      });
+      const secondAdminToken = await login(
+        alphaId,
+        'ikinci-admin@alpha.test',
+        CREATED_PASSWORD,
+      );
+
+      const res = await request(app.getHttpServer())
+        .patch(`/users/${adminUserId}`)
+        .set('x-tenant-id', alphaId)
+        .set('Authorization', `Bearer ${secondAdminToken}`)
+        .send({ role: 'manager' });
+
+      expect(res.status).toBe(200);
+      expect((res.body as UserBody).data.role).toBe('manager');
+    });
+  });
+
   describe('creating', () => {
     it('creates a user and seeds the role defaults', async () => {
       const res = await asAdmin('post', '/users').send({
         email: 'yeni@alpha.test',
-        password: 'secret1234',
+        password: CREATED_PASSWORD,
         fullName: 'Yeni Personel',
         role: 'manager',
       });
@@ -375,7 +486,7 @@ describe('Users CRUD (e2e)', () => {
     it('rejects a duplicate email within the same hotel', async () => {
       const res = await asAdmin('post', '/users').send({
         email: 'admin@alpha.test',
-        password: 'secret1234',
+        password: CREATED_PASSWORD,
         fullName: 'Kopya',
       });
 
@@ -389,7 +500,7 @@ describe('Users CRUD (e2e)', () => {
         .set('Authorization', `Bearer ${betaAdminToken}`)
         .send({
           email: 'admin@alpha.test',
-          password: 'secret1234',
+          password: CREATED_PASSWORD,
           fullName: 'Beta Adaşı',
         });
 
@@ -411,7 +522,7 @@ describe('Users CRUD (e2e)', () => {
       const one = await asAdmin('get', `/users/${staffUserId}`);
       const created = await asAdmin('post', '/users').send({
         email: 'gizli@alpha.test',
-        password: 'secret1234',
+        password: CREATED_PASSWORD,
         fullName: 'Gizli',
       });
       const updated = await asAdmin('patch', `/users/${staffUserId}`).send({
