@@ -1,0 +1,24 @@
+info:
+  name: Get a user
+  type: http
+  seq: 2
+  tags:
+    - users
+
+# One user, within the tenant in x-tenant-id. Another hotel's id answers 404 —
+# RLS hides the row, so there is nothing to find. Paste an id from "List users".
+http:
+  method: GET
+  url: "{{baseUrl}}/users/{{userId}}"
+  auth: inherit
+  headers:
+    - name: x-tenant-id
+      value: "{{tenantAlpha}}"
+    - name: Authorization
+      value: "Bearer {{token}}"
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

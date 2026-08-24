@@ -7,7 +7,7 @@ info:
 
 http:
   method: GET
-  url: "{{baseUrl}}/users"
+  url: "{{baseUrl}}/users?page=1&limit=20"
   auth: inherit
   headers:
     # RLS scopes the result to this tenant. Without it the request is rejected 400.
@@ -17,6 +17,13 @@ http:
     - name: Authorization
       value: "Bearer {{token}}"
 
+# Capture the first row's id so "Get a user" / "Update a user" work straight after.
+scripts:
+  postResponse: |-
+    if (res.getStatus() === 200 && res.getBody().data.length > 0) {
+      bru.setEnvVar('userId', res.getBody().data[0].id);
+    }
+
 settings:
   encodeUrl: true
   timeout: 0
@@ -25,9 +32,11 @@ settings:
 
 examples:
   - name: 200 Response
-    description: List of users (scoped to the tenant in x-tenant-id)
+    description: >-
+      One page of users, scoped to the tenant in x-tenant-id. page/limit/total/
+      hasMore live in meta; limit defaults to 20 and is capped at 100.
     request:
-      url: "{{baseUrl}}/users"
+      url: "{{baseUrl}}/users?page=1&limit=20"
       method: GET
       headers:
         - name: x-tenant-id
@@ -41,13 +50,29 @@ examples:
       body:
         type: json
         data: |-
-          [
-            {
-              "id": "",
-              "tenantId": "",
-              "email": "",
-              "name": "",
-              "createdAt": "",
-              "updatedAt": ""
+          {
+            "success": true,
+            "data": [
+              {
+                "id": "",
+                "tenantId": "",
+                "email": "",
+                "fullName": "",
+                "role": "staff",
+                "permissions": [],
+                "phone": null,
+                "isActive": true,
+                "lastLoginAt": null,
+                "createdAt": "",
+                "updatedAt": ""
+              }
+            ],
+            "meta": {
+              "timestamp": "",
+              "requestId": "",
+              "page": 1,
+              "limit": 20,
+              "total": 1,
+              "hasMore": false
             }
-          ]
+          }
