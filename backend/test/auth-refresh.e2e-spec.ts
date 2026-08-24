@@ -6,6 +6,7 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 import { closeAdminPool, getAdminPool, resetDatabase } from './helpers/db';
+import { closeRedis, resetLoginAttempts } from './helpers/redis';
 import { FIXTURE_PASSWORD, seedTenant, seedUser } from './helpers/fixtures';
 
 interface TokenPairBody {
@@ -88,13 +89,17 @@ describe('Auth refresh rotation & logout (e2e)', () => {
     userId = user.id;
   });
 
+  // Redis survives resetDatabase(), so the brute-force counter is cleared here
+  // too — otherwise a leftover lock from another spec could refuse a login.
   beforeEach(async () => {
     await getAdminPool().query('DELETE FROM refresh_tokens');
+    await resetLoginAttempts();
   });
 
   afterAll(async () => {
     await app.close();
     await closeAdminPool();
+    await closeRedis();
   });
 
   describe('storage', () => {

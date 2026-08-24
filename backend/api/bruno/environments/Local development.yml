@@ -8,5 +8,7 @@ variables:
     value: 22222222-2222-2222-2222-222222222222
   - name: refreshToken
     value: ""
+  - name: userId
+    value: ""
   - name: token
     value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxYTBkODc1Mi04YjdhLTQwNmEtYjExZS03ZDkxNDE2OTQ4ZDQiLCJlbWFpbCI6ImFkbWluQGFscGhhLmNvbSIsInRlbmFudElkIjoiMTExMTExMTEtMTExMS0xMTExLTExMTEtMTExMTExMTExMTExIiwicm9sZSI6ImFkbWluIiwicGVybWlzc2lvbnMiOlsiZ3Vlc3RzOnZpZXciLCJndWVzdHM6ZWRpdCIsIm5ldHdvcms6dmlldyIsIm5ldHdvcms6ZWRpdCIsInRpY2tldHM6dmlldyIsInRpY2tldHM6ZWRpdCIsInJlcG9ydHM6dmlldyIsInVzZXJzOm1hbmFnZSJdLCJpYXQiOjE3ODYzOTIzMjMsImV4cCI6MTc4NjQ3ODcyM30._igjcZjtMysFmDii86U4ZaXW6b-neloncAbzpQ9gpxY

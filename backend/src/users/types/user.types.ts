@@ -25,3 +25,16 @@ export interface NewUserRecord {
   permissions: string[];
   phone?: string;
 }
+
+/**
+ * The fields the repository is allowed to change. Email and passwordHash are
+ * absent by construction, so no update path can move an account or overwrite a
+ * credential.
+ */
+export interface UserUpdateRecord {
+  fullName?: string;
+  phone?: string;
+  role?: Role;
+  permissions?: string[];
+  isActive?: boolean;
+}
