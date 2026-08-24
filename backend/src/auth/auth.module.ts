@@ -7,6 +7,8 @@ import { TenantModule } from '../common/tenant/tenant.module';
 import { UsersModule } from '../users/users.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { LoginAttemptsRepository } from './login-attempts.repository';
+import { LoginThrottleService } from './login-throttle.service';
 import { RefreshTokenService } from './refresh-token.service';
 import { RefreshTokensRepository } from './refresh-tokens.repository';
 import { JwtStrategy } from './strategies/jwt.strategy';
@@ -36,6 +38,8 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     JwtStrategy,
     RefreshTokenService,
     RefreshTokensRepository,
+    LoginThrottleService,
+    LoginAttemptsRepository,
   ],
 })
 export class AuthModule {}

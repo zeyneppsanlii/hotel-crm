@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Ip,
   Post,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
@@ -12,6 +13,7 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { Public } from './decorators/public.decorator';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { AuthenticatedUser } from './interfaces/jwt-payload.interface';
+import { toClientIp } from './types/login-attempt.types';
 
 @Controller('auth')
 export class AuthController {
@@ -22,8 +24,8 @@ export class AuthController {
   @Public()
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  login(@Body() dto: LoginDto) {
-    return this.authService.login(dto);
+  login(@Body() dto: LoginDto, @Ip() ip: string) {
+    return this.authService.login(dto, toClientIp(ip));
   }
 
   @Public()
